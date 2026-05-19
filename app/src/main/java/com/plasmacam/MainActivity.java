@@ -18,8 +18,8 @@ import android.util.Log;
 import android.util.Size;
 import android.view.Surface;
 import android.view.TextureView;
-import android.view.View;
 import android.widget.Button;
+import android.widget.SeekBar;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
@@ -35,7 +35,8 @@ public class MainActivity extends AppCompatActivity {
 
     private TextureView textureView;
     private Button modeBtn;
-    private TextView modeLabel;
+    private TextView modeLabel, tvSensitivity, tvAmplify;
+    private SeekBar seekSensitivity, seekAmplify;
     private OverlayView overlayView;
 
     private CameraDevice cameraDevice;
@@ -45,9 +46,12 @@ public class MainActivity extends AppCompatActivity {
     private HandlerThread bgThread;
 
     private int currentMode = PlasmaEngine.MODE_KIRLIAN;
+    private volatile int sensitivity = 50;
+    private volatile int amplify = 50;
+
     private static final String[] MODE_NAMES = {
         "Kirlian Corona", "Plasma Field", "Biophoton Dark-Field",
-        "Aura Scan", "Gariaev Speckle", "UV Fluorescence", "IR Thermal"
+        "Aura Scan", "Gariaev Speckle", "Edge Differential", "Frequency Decomp"
     };
 
     private volatile int[] filteredPixels = null;
@@ -55,9 +59,7 @@ public class MainActivity extends AppCompatActivity {
 
     private final TextureView.SurfaceTextureListener textureListener =
         new TextureView.SurfaceTextureListener() {
-            @Override public void onSurfaceTextureAvailable(@NonNull SurfaceTexture s, int w, int h) {
-                openCamera();
-            }
+            @Override public void onSurfaceTextureAvailable(@NonNull SurfaceTexture s, int w, int h) { openCamera(); }
             @Override public void onSurfaceTextureSizeChanged(@NonNull SurfaceTexture s, int w, int h) {}
             @Override public boolean onSurfaceTextureDestroyed(@NonNull SurfaceTexture s) { return true; }
             @Override public void onSurfaceTextureUpdated(@NonNull SurfaceTexture s) {}
@@ -68,16 +70,38 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        textureView = findViewById(R.id.textureView);
-        modeBtn     = findViewById(R.id.btnMode);
-        modeLabel   = findViewById(R.id.tvMode);
-        overlayView = findViewById(R.id.overlayView);
+        textureView     = findViewById(R.id.textureView);
+        modeBtn         = findViewById(R.id.btnMode);
+        modeLabel       = findViewById(R.id.tvMode);
+        overlayView     = findViewById(R.id.overlayView);
+        seekSensitivity = findViewById(R.id.seekSensitivity);
+        seekAmplify     = findViewById(R.id.seekAmplify);
+        tvSensitivity   = findViewById(R.id.tvSensitivity);
+        tvAmplify       = findViewById(R.id.tvAmplify);
 
         modeLabel.setText(MODE_NAMES[currentMode]);
 
         modeBtn.setOnClickListener(v -> {
             currentMode = (currentMode + 1) % 7;
             modeLabel.setText(MODE_NAMES[currentMode]);
+        });
+
+        seekSensitivity.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar sb, int p, boolean u) {
+                sensitivity = p;
+                tvSensitivity.setText(String.valueOf(p));
+            }
+            @Override public void onStartTrackingTouch(SeekBar sb) {}
+            @Override public void onStopTrackingTouch(SeekBar sb) {}
+        });
+
+        seekAmplify.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar sb, int p, boolean u) {
+                amplify = p;
+                tvAmplify.setText(String.valueOf(p));
+            }
+            @Override public void onStartTrackingTouch(SeekBar sb) {}
+            @Override public void onStopTrackingTouch(SeekBar sb) {}
         });
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
@@ -103,7 +127,7 @@ public class MainActivity extends AppCompatActivity {
             CameraCharacteristics cc = manager.getCameraCharacteristics(camId);
             StreamConfigurationMap map = cc.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
             Size[] sizes = map.getOutputSizes(ImageFormat.YUV_420_888);
-            Size chosen = chooseSize(sizes, 640, 480);
+            Size chosen = chooseSize(sizes);
 
             bgThread = new HandlerThread("PlasmaCapture");
             bgThread.start();
@@ -145,9 +169,8 @@ public class MainActivity extends AppCompatActivity {
                 new CameraCaptureSession.StateCallback() {
                     @Override public void onConfigured(@NonNull CameraCaptureSession session) {
                         captureSession = session;
-                        try {
-                            session.setRepeatingRequest(builder.build(), null, bgHandler);
-                        } catch (CameraAccessException e) { Log.e(TAG, "Capture failed", e); }
+                        try { session.setRepeatingRequest(builder.build(), null, bgHandler); }
+                        catch (CameraAccessException e) { Log.e(TAG, "Capture failed", e); }
                     }
                     @Override public void onConfigureFailed(@NonNull CameraCaptureSession session) {}
                 }, bgHandler);
@@ -160,13 +183,11 @@ public class MainActivity extends AppCompatActivity {
         Image image = reader.acquireLatestImage();
         if (image == null) return;
         try {
-            int w = image.getWidth();
-            int h = image.getHeight();
-            int[] argb = yuvToArgb(image, w, h);
-            int[] filtered = PlasmaEngine.apply(argb, w, h, currentMode);
+            int w = image.getWidth(), h = image.getHeight();
+            int[] argb     = yuvToArgb(image, w, h);
+            int[] filtered = PlasmaEngine.apply(argb, w, h, currentMode, sensitivity, amplify);
             filteredPixels = filtered;
-            frameW = w;
-            frameH = h;
+            frameW = w; frameH = h;
             overlayView.postInvalidate();
         } finally {
             image.close();
@@ -175,20 +196,17 @@ public class MainActivity extends AppCompatActivity {
 
     private int[] yuvToArgb(Image image, int w, int h) {
         Image.Plane[] planes = image.getPlanes();
-        ByteBuffer yBuf  = planes[0].getBuffer();
-        ByteBuffer uBuf  = planes[1].getBuffer();
-        ByteBuffer vBuf  = planes[2].getBuffer();
+        ByteBuffer yBuf = planes[0].getBuffer();
+        ByteBuffer uBuf = planes[1].getBuffer();
+        ByteBuffer vBuf = planes[2].getBuffer();
         int yStride = planes[0].getRowStride();
         int uvStride = planes[1].getRowStride();
         int uvPixelStride = planes[1].getPixelStride();
         int[] argb = new int[w * h];
         for (int row = 0; row < h; row++) {
             for (int col = 0; col < w; col++) {
-                int yIdx = row * yStride + col;
-                int uvRow = row / 2;
-                int uvCol = col / 2;
-                int uvIdx = uvRow * uvStride + uvCol * uvPixelStride;
-                int Y = yBuf.get(yIdx) & 0xFF;
+                int Y = yBuf.get(row * yStride + col) & 0xFF;
+                int uvIdx = (row / 2) * uvStride + (col / 2) * uvPixelStride;
                 int U = uBuf.get(uvIdx) & 0xFF;
                 int V = vBuf.get(uvIdx) & 0xFF;
                 int r = clamp((int)(Y + 1.370705f * (V - 128)));
@@ -202,17 +220,15 @@ public class MainActivity extends AppCompatActivity {
 
     private int clamp(int v) { return Math.max(0, Math.min(255, v)); }
 
-    private Size chooseSize(Size[] sizes, int prefW, int prefH) {
-        for (Size s : sizes) {
+    private Size chooseSize(Size[] sizes) {
+        for (Size s : sizes)
             if (s.getWidth() <= 640 && s.getHeight() <= 480) return s;
-        }
         return sizes[sizes.length - 1];
     }
 
     public class OverlayView extends android.view.View {
-        public OverlayView(Context ctx, android.util.AttributeSet attrs) {
-            super(ctx, attrs);
-        }
+        public OverlayView(Context ctx, android.util.AttributeSet attrs) { super(ctx, attrs); }
+
         @Override protected void onDraw(Canvas canvas) {
             int[] px = filteredPixels;
             int w = frameW, h = frameH;

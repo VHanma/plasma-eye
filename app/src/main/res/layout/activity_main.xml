@@ -21,7 +21,7 @@
         android:layout_gravity="bottom"
         android:orientation="vertical"
         android:padding="16dp"
-        android:background="#88000000">
+        android:background="#AA000000">
 
         <TextView
             android:id="@+id/tvMode"
@@ -30,8 +30,76 @@
             android:textColor="#FFFFFF"
             android:textSize="16sp"
             android:gravity="center"
-            android:paddingBottom="8dp"
+            android:paddingBottom="4dp"
             android:text="Kirlian Corona" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingBottom="8dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#AAAAAA"
+                android:textSize="12sp"
+                android:text="Sensitivity: " />
+
+            <SeekBar
+                android:id="@+id/seekSensitivity"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:max="100"
+                android:progress="50"
+                android:progressTint="#00FFCC"
+                android:thumbTint="#00FFCC" />
+
+            <TextView
+                android:id="@+id/tvSensitivity"
+                android:layout_width="36dp"
+                android:layout_height="wrap_content"
+                android:textColor="#00FFCC"
+                android:textSize="12sp"
+                android:gravity="end"
+                android:text="50" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingBottom="8dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#AAAAAA"
+                android:textSize="12sp"
+                android:text="Amplify: " />
+
+            <SeekBar
+                android:id="@+id/seekAmplify"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:max="100"
+                android:progress="50"
+                android:progressTint="#FF6600"
+                android:thumbTint="#FF6600" />
+
+            <TextView
+                android:id="@+id/tvAmplify"
+                android:layout_width="36dp"
+                android:layout_height="wrap_content"
+                android:textColor="#FF6600"
+                android:textSize="12sp"
+                android:gravity="end"
+                android:text="50" />
+        </LinearLayout>
 
         <Button
             android:id="@+id/btnMode"
