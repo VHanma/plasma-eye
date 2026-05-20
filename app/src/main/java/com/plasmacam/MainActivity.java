@@ -526,4 +526,151 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             startCameraWhenReady();
         }
     }
+
+
+    private void setupSensorFieldSystem() {
+        sensorUiHandler = new Handler(getMainLooper());
+
+        sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
+        if (sensorManager != null) {
+            magnetometer = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD);
+            accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+            gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE);
+            lightSensor = sensorManager.getDefaultSensor(Sensor.TYPE_LIGHT);
+        }
+
+        wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+
+        requestFieldPermissions();
+
+        wifiReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                updateWifiResults();
+            }
+        };
+
+        IntentFilter filter = new IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION);
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(wifiReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(wifiReceiver, filter);
+        }
+
+        wifiScanRunnable = new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    updateWifiResults();
+                    if (wifiManager != null && hasWifiScanPermission()) {
+                        wifiManager.startScan();
+                    }
+                } catch (Exception ignored) {}
+
+                if (sensorUiHandler != null) {
+                    sensorUiHandler.postDelayed(this, 15000);
+                }
+            }
+        };
+    }
+
+    private void requestFieldPermissions() {
+        ArrayList<String> perms = new ArrayList<>();
+
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED) {
+            perms.add(Manifest.permission.ACCESS_FINE_LOCATION);
+        }
+
+        if (Build.VERSION.SDK_INT >= 33 &&
+                ContextCompat.checkSelfPermission(this, Manifest.permission.NEARBY_WIFI_DEVICES)
+                        != PackageManager.PERMISSION_GRANTED) {
+            perms.add(Manifest.permission.NEARBY_WIFI_DEVICES);
+        }
+
+        if (!perms.isEmpty()) {
+            ActivityCompat.requestPermissions(this, perms.toArray(new String[0]), 77);
+        }
+    }
+
+    private boolean hasWifiScanPermission() {
+        boolean hasLocation =
+                ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                        == PackageManager.PERMISSION_GRANTED;
+
+        boolean hasNearby =
+                Build.VERSION.SDK_INT < 33 ||
+                ContextCompat.checkSelfPermission(this, Manifest.permission.NEARBY_WIFI_DEVICES)
+                        == PackageManager.PERMISSION_GRANTED;
+
+        return hasLocation || hasNearby;
+    }
+
+    private void updateWifiResults() {
+        if (wifiManager == null || sensorFieldView == null || !hasWifiScanPermission()) return;
+
+        try {
+            sensorFieldView.setWifiResults(wifiManager.getScanResults());
+        } catch (SecurityException ignored) {}
+    }
+
+    private void startSensorListeners() {
+        if (sensorManager == null) return;
+
+        if (magnetometer != null) {
+            sensorManager.registerListener(this, magnetometer, SensorManager.SENSOR_DELAY_GAME);
+        }
+
+        if (accelerometer != null) {
+            sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_GAME);
+        }
+
+        if (gyroscope != null) {
+            sensorManager.registerListener(this, gyroscope, SensorManager.SENSOR_DELAY_GAME);
+        }
+
+        if (lightSensor != null) {
+            sensorManager.registerListener(this, lightSensor, SensorManager.SENSOR_DELAY_NORMAL);
+        }
+    }
+
+    private void stopSensorListeners() {
+        if (sensorManager != null) {
+            sensorManager.unregisterListener(this);
+        }
+    }
+
+    private void startWifiLoop() {
+        if (sensorUiHandler != null && wifiScanRunnable != null) {
+            sensorUiHandler.removeCallbacks(wifiScanRunnable);
+            sensorUiHandler.post(wifiScanRunnable);
+        }
+    }
+
+    private void stopWifiLoop() {
+        if (sensorUiHandler != null && wifiScanRunnable != null) {
+            sensorUiHandler.removeCallbacks(wifiScanRunnable);
+        }
+    }
+
+    @Override
+    public void onSensorChanged(SensorEvent event) {
+        if (sensorFieldView == null || event == null || event.sensor == null) return;
+
+        int type = event.sensor.getType();
+
+        if (type == Sensor.TYPE_MAGNETIC_FIELD) {
+            sensorFieldView.setMagnetic(event.values[0], event.values[1], event.values[2], event.accuracy);
+        } else if (type == Sensor.TYPE_ACCELEROMETER) {
+            sensorFieldView.setAccel(event.values[0], event.values[1], event.values[2]);
+        } else if (type == Sensor.TYPE_GYROSCOPE) {
+            sensorFieldView.setGyro(event.values[0], event.values[1], event.values[2]);
+        } else if (type == Sensor.TYPE_LIGHT) {
+            sensorFieldView.setLux(event.values[0]);
+        }
+    }
+
+    @Override
+    public void onAccuracyChanged(Sensor sensor, int accuracy) {}
+
 }
