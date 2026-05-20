@@ -1,6 +1,16 @@
 package com.plasmacam;
 
 import android.Manifest;
+import java.util.ArrayList;
+import android.os.Build;
+import android.net.wifi.WifiManager;
+import android.hardware.SensorManager;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorEvent;
+import android.hardware.Sensor;
+import android.content.IntentFilter;
+import android.content.Intent;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.graphics.ImageFormat;
@@ -35,12 +45,23 @@ import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Locale;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity implements SensorEventListener {
     private static final String TAG = "PlasmaEye";
     private static final int REQUEST_CAMERA = 1;
 
     private TextureView textureView;
     private OverlayView overlayView;
+
+    private SensorFieldView sensorFieldView;
+    private SensorManager sensorManager;
+    private Sensor magnetometer;
+    private Sensor accelerometer;
+    private Sensor gyroscope;
+    private Sensor lightSensor;
+    private WifiManager wifiManager;
+    private BroadcastReceiver wifiReceiver;
+    private Handler sensorUiHandler;
+    private Runnable wifiScanRunnable;
     private Button modeBtn;
     private TextView modeLabel, tvSensitivity, tvAmplify;
     private SeekBar seekSensitivity, seekAmplify;
@@ -87,6 +108,7 @@ public class MainActivity extends AppCompatActivity {
 
         textureView = findViewById(R.id.textureView);
         overlayView = findViewById(R.id.overlayView);
+        sensorFieldView = findViewById(R.id.sensorFieldView);
         modeBtn = findViewById(R.id.btnMode);
         modeLabel = findViewById(R.id.tvMode);
         seekSensitivity = findViewById(R.id.seekSensitivity);
@@ -100,6 +122,7 @@ public class MainActivity extends AppCompatActivity {
         modeBtn.setOnClickListener(v -> {
             currentMode = (currentMode + 1) % MODE_NAMES.length;
             updateModeText();
+        setupSensorFieldSystem();
         });
 
         seekSensitivity.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
@@ -486,12 +509,17 @@ public class MainActivity extends AppCompatActivity {
         }
 
         repeatingBuilder = null;
+        stopSensorListeners();
+        stopWifiLoop();
         stopBackgroundThread();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
+
+        startSensorListeners();
+        startWifiLoop();
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
                 == PackageManager.PERMISSION_GRANTED) {
