@@ -96,18 +96,27 @@ public class MainActivity extends AppCompatActivity {
                 != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, REQUEST_CAMERA);
         } else {
-            textureView.setSurfaceTextureListener(textureListener);
-        }
+  startCameraWhenReady();
+  }
     }
 
     @Override
     public void onRequestPermissionsResult(int req, @NonNull String[] perms, @NonNull int[] results) {
         super.onRequestPermissionsResult(req, perms, results);
-        if (req == REQUEST_CAMERA && results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED)
-            textureView.setSurfaceTextureListener(textureListener);
+        if (req == REQUEST_CAMERA && results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) {
+  startCameraWhenReady();
+  }
     }
 
-    private void openCamera() {
+    private void startCameraWhenReady() {
+  if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+      != PackageManager.PERMISSION_GRANTED) return;
+
+  if (textureView.isAvailable()) openCamera();
+  else textureView.setSurfaceTextureListener(textureListener);
+ }
+
+ private void openCamera() {
         CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
         try {
             String camId = manager.getCameraIdList()[0];
@@ -134,11 +143,12 @@ public class MainActivity extends AppCompatActivity {
     private void startCapture() {
         try {
             SurfaceTexture st = textureView.getSurfaceTexture();
-            st.setDefaultBufferSize(1, 1);
+            st.setDefaultBufferSize(imageReader.getWidth(), imageReader.getHeight());
             Surface dummy = new Surface(st);
             Surface reader = imageReader.getSurface();
             CaptureRequest.Builder builder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
             builder.addTarget(reader);
+  builder.addTarget(dummy);
             builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO);
             cameraDevice.createCaptureSession(Arrays.asList(reader, dummy),
                 new CameraCaptureSession.StateCallback() {
@@ -202,8 +212,10 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override protected void onResume() {
-        super.onResume();
-        if (textureView.isAvailable()) openCamera();
-        else textureView.setSurfaceTextureListener(textureListener);
-    }
+  super.onResume();
+  if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+      == PackageManager.PERMISSION_GRANTED) {
+   startCameraWhenReady();
+  }
+ }
 }
