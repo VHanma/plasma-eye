@@ -3,8 +3,6 @@ package com.plasmacam;
 import android.Manifest;
 import android.content.Context;
 import android.content.pm.PackageManager;
-import android.graphics.Bitmap;
-import android.graphics.Canvas;
 import android.graphics.ImageFormat;
 import android.graphics.SurfaceTexture;
 import android.hardware.camera2.*;
@@ -54,9 +52,6 @@ public class MainActivity extends AppCompatActivity {
         "Aura Scan", "Gariaev Speckle", "Edge Differential", "Frequency Decomp"
     };
 
-    private volatile int[] filteredPixels = null;
-    private volatile int frameW = 0, frameH = 0;
-
     private final TextureView.SurfaceTextureListener textureListener =
         new TextureView.SurfaceTextureListener() {
             @Override public void onSurfaceTextureAvailable(@NonNull SurfaceTexture s, int w, int h) { openCamera(); }
@@ -80,34 +75,26 @@ public class MainActivity extends AppCompatActivity {
         tvAmplify       = findViewById(R.id.tvAmplify);
 
         modeLabel.setText(MODE_NAMES[currentMode]);
-
         modeBtn.setOnClickListener(v -> {
             currentMode = (currentMode + 1) % 7;
             modeLabel.setText(MODE_NAMES[currentMode]);
         });
 
         seekSensitivity.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar sb, int p, boolean u) {
-                sensitivity = p;
-                tvSensitivity.setText(String.valueOf(p));
-            }
+            @Override public void onProgressChanged(SeekBar sb, int p, boolean u) { sensitivity = p; tvSensitivity.setText(String.valueOf(p)); }
             @Override public void onStartTrackingTouch(SeekBar sb) {}
             @Override public void onStopTrackingTouch(SeekBar sb) {}
         });
 
         seekAmplify.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar sb, int p, boolean u) {
-                amplify = p;
-                tvAmplify.setText(String.valueOf(p));
-            }
+            @Override public void onProgressChanged(SeekBar sb, int p, boolean u) { amplify = p; tvAmplify.setText(String.valueOf(p)); }
             @Override public void onStartTrackingTouch(SeekBar sb) {}
             @Override public void onStopTrackingTouch(SeekBar sb) {}
         });
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
                 != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this,
-                new String[]{Manifest.permission.CAMERA}, REQUEST_CAMERA);
+            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, REQUEST_CAMERA);
         } else {
             textureView.setSurfaceTextureListener(textureListener);
         }
@@ -126,57 +113,43 @@ public class MainActivity extends AppCompatActivity {
             String camId = manager.getCameraIdList()[0];
             CameraCharacteristics cc = manager.getCameraCharacteristics(camId);
             StreamConfigurationMap map = cc.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
-            Size[] sizes = map.getOutputSizes(ImageFormat.YUV_420_888);
-            Size chosen = chooseSize(sizes);
+            Size chosen = chooseSize(map.getOutputSizes(ImageFormat.YUV_420_888));
 
             bgThread = new HandlerThread("PlasmaCapture");
             bgThread.start();
             bgHandler = new Handler(bgThread.getLooper());
 
-            imageReader = ImageReader.newInstance(chosen.getWidth(), chosen.getHeight(),
-                ImageFormat.YUV_420_888, 2);
+            imageReader = ImageReader.newInstance(chosen.getWidth(), chosen.getHeight(), ImageFormat.YUV_420_888, 2);
             imageReader.setOnImageAvailableListener(this::processFrame, bgHandler);
 
-            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
-                    != PackageManager.PERMISSION_GRANTED) return;
-
+            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return;
             manager.openCamera(camId, new CameraDevice.StateCallback() {
-                @Override public void onOpened(@NonNull CameraDevice cam) {
-                    cameraDevice = cam;
-                    startCapture();
-                }
+                @Override public void onOpened(@NonNull CameraDevice cam) { cameraDevice = cam; startCapture(); }
                 @Override public void onDisconnected(@NonNull CameraDevice cam) { cam.close(); }
                 @Override public void onError(@NonNull CameraDevice cam, int e) { cam.close(); }
             }, bgHandler);
-
-        } catch (CameraAccessException e) {
-            Log.e(TAG, "Camera open failed", e);
-        }
+        } catch (CameraAccessException e) { Log.e(TAG, "Camera open failed", e); }
     }
 
     private void startCapture() {
         try {
             SurfaceTexture st = textureView.getSurfaceTexture();
             st.setDefaultBufferSize(1, 1);
-            Surface dummySurface = new Surface(st);
-            Surface readerSurface = imageReader.getSurface();
-
+            Surface dummy = new Surface(st);
+            Surface reader = imageReader.getSurface();
             CaptureRequest.Builder builder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
-            builder.addTarget(readerSurface);
+            builder.addTarget(reader);
             builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO);
-
-            cameraDevice.createCaptureSession(Arrays.asList(readerSurface, dummySurface),
+            cameraDevice.createCaptureSession(Arrays.asList(reader, dummy),
                 new CameraCaptureSession.StateCallback() {
-                    @Override public void onConfigured(@NonNull CameraCaptureSession session) {
-                        captureSession = session;
-                        try { session.setRepeatingRequest(builder.build(), null, bgHandler); }
+                    @Override public void onConfigured(@NonNull CameraCaptureSession s) {
+                        captureSession = s;
+                        try { s.setRepeatingRequest(builder.build(), null, bgHandler); }
                         catch (CameraAccessException e) { Log.e(TAG, "Capture failed", e); }
                     }
-                    @Override public void onConfigureFailed(@NonNull CameraCaptureSession session) {}
+                    @Override public void onConfigureFailed(@NonNull CameraCaptureSession s) {}
                 }, bgHandler);
-        } catch (CameraAccessException e) {
-            Log.e(TAG, "Session failed", e);
-        }
+        } catch (CameraAccessException e) { Log.e(TAG, "Session failed", e); }
     }
 
     private void processFrame(ImageReader reader) {
@@ -184,14 +157,10 @@ public class MainActivity extends AppCompatActivity {
         if (image == null) return;
         try {
             int w = image.getWidth(), h = image.getHeight();
-            int[] argb     = yuvToArgb(image, w, h);
+            int[] argb = yuvToArgb(image, w, h);
             int[] filtered = PlasmaEngine.apply(argb, w, h, currentMode, sensitivity, amplify);
-            filteredPixels = filtered;
-            frameW = w; frameH = h;
-            overlayView.postInvalidate();
-        } finally {
-            image.close();
-        }
+            overlayView.setFrame(filtered, w, h);
+        } finally { image.close(); }
     }
 
     private int[] yuvToArgb(Image image, int w, int h) {
@@ -221,23 +190,8 @@ public class MainActivity extends AppCompatActivity {
     private int clamp(int v) { return Math.max(0, Math.min(255, v)); }
 
     private Size chooseSize(Size[] sizes) {
-        for (Size s : sizes)
-            if (s.getWidth() <= 640 && s.getHeight() <= 480) return s;
+        for (Size s : sizes) if (s.getWidth() <= 640 && s.getHeight() <= 480) return s;
         return sizes[sizes.length - 1];
-    }
-
-    public class OverlayView extends android.view.View {
-        public OverlayView(Context ctx, android.util.AttributeSet attrs) { super(ctx, attrs); }
-
-        @Override protected void onDraw(Canvas canvas) {
-            int[] px = filteredPixels;
-            int w = frameW, h = frameH;
-            if (px == null || w == 0 || h == 0) return;
-            Bitmap bmp = Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888);
-            canvas.drawBitmap(bmp, null,
-                new android.graphics.RectF(0, 0, getWidth(), getHeight()), null);
-            bmp.recycle();
-        }
     }
 
     @Override protected void onPause() {
