@@ -11,29 +11,34 @@ public class PlasmaEngine {
     private static float[] background;
     private static int frameCount = 0;
 
+    private static final int MIN_LOCK_SCORE = 118;
+    private static final int MIN_BLOB_CELLS = 8;
+    private static final int MAX_LOCKS = 4;
+
     public static int[] apply(int[] px, int w, int h, int mode) {
         if (px == null || px.length != w * h) return px;
 
         switch (mode) {
             case MODE_LIVE:
-                return blueNightVision(px, w, h);
+                return blueForensicVision(px, w, h);
 
             case MODE_STACK:
-                return specterXrayVision(px, w, h);
+                return bioSpiritLockVision(px, w, h);
 
             case MODE_DELTA:
-                return targetMotionVision(px, w, h);
+                return motionOnlyBioLock(px, w, h);
 
             case MODE_RED_IR:
-                return redInfraVision(px, w, h);
+                return redInfraBioVision(px, w, h);
 
             default:
-                return specterXrayVision(px, w, h);
+                return bioSpiritLockVision(px, w, h);
         }
     }
 
-    private static int[] specterXrayVision(int[] px, int w, int h) {
+    private static int[] bioSpiritLockVision(int[] px, int w, int h) {
         int n = w * h;
+
         int[] gray = toGray(px, w, h);
         int[] blur = boxBlur(gray, w, h, 2);
         int[] edge = sobel(blur, w, h);
@@ -41,14 +46,13 @@ public class PlasmaEngine {
         int[] local = localContrast(gray, blur, w, h);
 
         ensureFloatArrays(n);
-
         frameCount++;
 
         for (int i = 0; i < n; i++) {
-            if (frameCount < 4) {
+            if (frameCount < 5) {
                 background[i] = gray[i];
             } else {
-                background[i] = background[i] * 0.992f + gray[i] * 0.008f;
+                background[i] = background[i] * 0.996f + gray[i] * 0.004f;
             }
         }
 
@@ -61,62 +65,69 @@ public class PlasmaEngine {
             if (v > max) max = v;
         }
 
-        int range = Math.max(8, max - min);
-
-        int[] signal = new int[n];
+        int range = Math.max(10, max - min);
         int[] out = new int[n];
+        int[] entitySignal = new int[n];
 
         for (int i = 0; i < n; i++) {
             int base = clamp((gray[i] - min) * 255 / range);
-
             int bgDiff = clamp((int)Math.abs(gray[i] - background[i]) * 3);
+
             int e = edge[i];
             int m = motion[i];
             int lc = local[i];
 
-            int sig = clamp((int)(e * 1.35f + m * 2.6f + lc * 0.95f + bgDiff * 0.9f));
-            signal[i] = sig;
+            int biologicalSignal = clamp(
+                    (int)(
+                            m * 2.8f +
+                            bgDiff * 1.15f +
+                            lc * 0.65f +
+                            Math.max(0, e - 38) * 0.75f
+                    )
+            );
 
-            if (sig > persistence[i]) {
-                persistence[i] = persistence[i] * 0.55f + sig * 0.45f;
+            // Stop hard static furniture edges from acting like entities.
+            if (m < 10 && bgDiff < 12) {
+                biologicalSignal = clamp(biologicalSignal / 3);
+            }
+
+            entitySignal[i] = biologicalSignal;
+
+            if (biologicalSignal > persistence[i]) {
+                persistence[i] = persistence[i] * 0.72f + biologicalSignal * 0.28f;
             } else {
-                persistence[i] *= 0.955f;
+                persistence[i] *= 0.974f;
             }
 
             int mem = clamp((int)persistence[i]);
 
-            int r = clamp((int)(base * 0.07f + m * 0.42f + mem * 0.10f));
-            int g = clamp((int)(base * 0.20f + e * 0.78f + mem * 0.48f));
-            int b = clamp((int)(base * 0.58f + e * 1.05f + mem * 1.22f));
+            int r = clamp((int)(base * 0.04f + mem * 0.10f));
+            int g = clamp((int)(base * 0.22f + e * 0.38f + mem * 0.42f));
+            int b = clamp((int)(base * 0.72f + e * 0.70f + mem * 0.95f));
 
-            if (mem > 130 || sig > 180) {
+            if (mem > 145) {
                 r = clamp(r + 80);
-                g = clamp(g + 120);
-                b = 255;
-            }
-
-            if (e > 105 && mem > 80) {
-                r = 235;
-                g = 255;
+                g = clamp(g + 135);
                 b = 255;
             }
 
             out[i] = argb(r, g, b);
         }
 
-        drawHardSceneEdges(out, edge, w, h);
-        drawTargetBoxes(out, signal, w, h, true);
+        drawSceneEdgesSubtle(out, edge, w, h);
+        drawBioSpiritLocks(out, entitySignal, edge, motion, gray, w, h);
 
         prevGray = gray;
         return out;
     }
 
-    private static int[] targetMotionVision(int[] px, int w, int h) {
+    private static int[] motionOnlyBioLock(int[] px, int w, int h) {
         int n = w * h;
+
         int[] gray = toGray(px, w, h);
-        int[] motion = motionDiff(gray, w, h);
         int[] blur = boxBlur(gray, w, h, 2);
         int[] edge = sobel(blur, w, h);
+        int[] motion = motionDiff(gray, w, h);
 
         ensureFloatArrays(n);
 
@@ -124,37 +135,38 @@ public class PlasmaEngine {
         int[] signal = new int[n];
 
         for (int i = 0; i < n; i++) {
-            int sig = clamp(motion[i] * 4 + edge[i]);
+            int sig = clamp(motion[i] * 5 + Math.max(0, edge[i] - 55));
             signal[i] = sig;
 
-            if (sig > persistence[i]) persistence[i] = sig;
-            else persistence[i] *= 0.93f;
+            if (sig > persistence[i]) persistence[i] = persistence[i] * 0.6f + sig * 0.4f;
+            else persistence[i] *= 0.94f;
 
             int p = clamp((int)persistence[i]);
-            int base = gray[i] / 8;
+            int base = gray[i] / 10;
 
-            int r = clamp(base + p * 2);
-            int g = clamp(base + p);
-            int b = clamp(base + edge[i] / 2);
+            int r = clamp(base + p);
+            int g = clamp(base + p / 2);
+            int b = clamp(base + edge[i] / 3);
 
-            if (p > 90) {
+            if (p > 150) {
                 r = 255;
-                g = clamp(80 + p);
-                b = clamp(40 + p / 2);
+                g = clamp(80 + p / 2);
+                b = clamp(60 + p / 3);
             }
 
             out[i] = argb(r, g, b);
         }
 
-        drawTargetBoxes(out, signal, w, h, true);
+        drawBioSpiritLocks(out, signal, edge, motion, gray, w, h);
 
         prevGray = gray;
         return out;
     }
 
-    private static int[] blueNightVision(int[] px, int w, int h) {
+    private static int[] blueForensicVision(int[] px, int w, int h) {
         int n = w * h;
         int[] gray = toGray(px, w, h);
+        int[] edge = sobel(boxBlur(gray, w, h, 1), w, h);
 
         int min = 255;
         int max = 0;
@@ -165,16 +177,16 @@ public class PlasmaEngine {
             if (v > max) max = v;
         }
 
-        int range = Math.max(8, max - min);
+        int range = Math.max(10, max - min);
         int[] out = new int[n];
 
         for (int i = 0; i < n; i++) {
             int v = clamp((gray[i] - min) * 255 / range);
             int boosted = clamp((int)(Math.sqrt(v / 255.0) * 255.0));
 
-            int r = boosted / 12;
-            int g = boosted / 3;
-            int b = clamp(boosted + 35);
+            int r = boosted / 14;
+            int g = boosted / 3 + edge[i] / 5;
+            int b = clamp(boosted + 25 + edge[i] / 2);
 
             out[i] = argb(r, g, b);
         }
@@ -182,7 +194,7 @@ public class PlasmaEngine {
         return out;
     }
 
-    private static int[] redInfraVision(int[] px, int w, int h) {
+    private static int[] redInfraBioVision(int[] px, int w, int h) {
         int n = w * h;
         int[] out = new int[n];
 
@@ -197,14 +209,349 @@ public class PlasmaEngine {
             int y = (r * 77 + g * 150 + b * 29) >> 8;
             int base = y / 5;
 
-            int rr = clamp(base + signal * 2);
-            int gg = clamp(base + signal / 2);
-            int bb = clamp(base / 2);
-
-            out[i] = argb(rr, gg, bb);
+            out[i] = argb(
+                    clamp(base + signal * 2),
+                    clamp(base + signal / 2),
+                    base / 2
+            );
         }
 
         return out;
+    }
+
+    private static void drawBioSpiritLocks(
+            int[] out,
+            int[] signal,
+            int[] edge,
+            int[] motion,
+            int[] gray,
+            int w,
+            int h
+    ) {
+        int gridW = 64;
+        int gridH = Math.max(36, gridW * h / Math.max(1, w));
+
+        int cells = gridW * gridH;
+        int[] sums = new int[cells];
+        int[] edgeSums = new int[cells];
+        int[] motionSums = new int[cells];
+        int[] graySums = new int[cells];
+        int[] counts = new int[cells];
+
+        for (int y = 0; y < h; y += 2) {
+            int gy = y * gridH / h;
+
+            for (int x = 0; x < w; x += 2) {
+                int gx = x * gridW / w;
+                int idx = gy * gridW + gx;
+                int p = y * w + x;
+
+                sums[idx] += signal[p];
+                edgeSums[idx] += edge[p];
+                motionSums[idx] += motion[p];
+                graySums[idx] += gray[p];
+                counts[idx]++;
+            }
+        }
+
+        boolean[] hot = new boolean[cells];
+
+        for (int i = 0; i < cells; i++) {
+            int count = Math.max(1, counts[i]);
+            int avgSignal = sums[i] / count;
+            int avgMotion = motionSums[i] / count;
+            int avgEdge = edgeSums[i] / count;
+
+            // Low default sensitivity: do not even consider weak static edges.
+            hot[i] = avgSignal > 70 && (avgMotion > 10 || avgSignal > 120) && avgEdge > 18;
+        }
+
+        boolean[] seen = new boolean[cells];
+        int[] stack = new int[cells];
+        int locks = 0;
+
+        for (int i = 0; i < cells && locks < MAX_LOCKS; i++) {
+            if (!hot[i] || seen[i]) continue;
+
+            int sp = 0;
+            stack[sp++] = i;
+            seen[i] = true;
+
+            int minX = gridW;
+            int minY = gridH;
+            int maxX = 0;
+            int maxY = 0;
+            int totalCells = 0;
+            int totalSignal = 0;
+            int totalMotion = 0;
+            int totalEdge = 0;
+
+            while (sp > 0) {
+                int cur = stack[--sp];
+                int cx = cur % gridW;
+                int cy = cur / gridW;
+
+                if (cx < minX) minX = cx;
+                if (cy < minY) minY = cy;
+                if (cx > maxX) maxX = cx;
+                if (cy > maxY) maxY = cy;
+
+                int count = Math.max(1, counts[cur]);
+
+                totalSignal += sums[cur] / count;
+                totalMotion += motionSums[cur] / count;
+                totalEdge += edgeSums[cur] / count;
+                totalCells++;
+
+                int[][] neighbors = {
+                        {1, 0}, {-1, 0}, {0, 1}, {0, -1}
+                };
+
+                for (int[] nb : neighbors) {
+                    int nx = cx + nb[0];
+                    int ny = cy + nb[1];
+
+                    if (nx < 0 || nx >= gridW || ny < 0 || ny >= gridH) continue;
+
+                    int ni = ny * gridW + nx;
+
+                    if (hot[ni] && !seen[ni]) {
+                        seen[ni] = true;
+                        stack[sp++] = ni;
+                    }
+                }
+            }
+
+            if (totalCells < MIN_BLOB_CELLS) continue;
+
+            int bw = maxX - minX + 1;
+            int bh = maxY - minY + 1;
+
+            if (bw <= 0 || bh <= 0) continue;
+
+            float aspect = bh / (float)bw;
+            float fill = totalCells / (float)(bw * bh);
+
+            int avgSignal = totalSignal / Math.max(1, totalCells);
+            int avgMotion = totalMotion / Math.max(1, totalCells);
+            int avgEdge = totalEdge / Math.max(1, totalCells);
+
+            int score = figureScore(
+                    hot,
+                    gridW,
+                    gridH,
+                    minX,
+                    minY,
+                    maxX,
+                    maxY,
+                    aspect,
+                    fill,
+                    avgSignal,
+                    avgMotion,
+                    avgEdge
+            );
+
+            if (score < MIN_LOCK_SCORE) continue;
+
+            int x0 = clamp(minX * w / gridW - 8, 0, w - 1);
+            int y0 = clamp(minY * h / gridH - 8, 0, h - 1);
+            int x1 = clamp((maxX + 1) * w / gridW + 8, 0, w - 1);
+            int y1 = clamp((maxY + 1) * h / gridH + 8, 0, h - 1);
+
+            if ((x1 - x0) < w * 0.045f || (y1 - y0) < h * 0.055f) continue;
+            if ((x1 - x0) > w * 0.80f || (y1 - y0) > h * 0.90f) continue;
+
+            int lockColor;
+
+            if (aspect > 1.25f) {
+                lockColor = argb(255, 90, 40);      // human/spirit vertical lock
+                drawHumanSpiritSilhouette(out, w, h, x0, y0, x1, y1, lockColor, score);
+            } else {
+                lockColor = argb(255, 180, 40);     // animal/low compact lock
+                drawAnimalSilhouette(out, w, h, x0, y0, x1, y1, lockColor, score);
+            }
+
+            locks++;
+        }
+    }
+
+    private static int figureScore(
+            boolean[] hot,
+            int gridW,
+            int gridH,
+            int minX,
+            int minY,
+            int maxX,
+            int maxY,
+            float aspect,
+            float fill,
+            int avgSignal,
+            int avgMotion,
+            int avgEdge
+    ) {
+        int score = 0;
+
+        // Human/spirit standing shape.
+        if (aspect >= 1.15f && aspect <= 4.8f) score += 38;
+
+        // Animal/creature compact shape.
+        if (aspect >= 0.35f && aspect < 1.25f) score += 24;
+
+        // Reject huge solid rectangles/furniture.
+        if (fill >= 0.10f && fill <= 0.72f) score += 22;
+        else score -= 28;
+
+        if (avgSignal > 95) score += 22;
+        if (avgMotion > 14) score += 26;
+        if (avgEdge > 28) score += 14;
+
+        int symmetry = symmetryScore(hot, gridW, gridH, minX, minY, maxX, maxY);
+        score += symmetry;
+
+        int organic = organicScore(hot, gridW, gridH, minX, minY, maxX, maxY);
+        score += organic;
+
+        // Penalize perfect rectangles and wall-like blocks.
+        int bw = maxX - minX + 1;
+        int bh = maxY - minY + 1;
+
+        if (bw > gridW * 0.45f && bh < gridH * 0.18f) score -= 45;
+        if (bh > gridH * 0.55f && bw > gridW * 0.42f) score -= 35;
+
+        return score;
+    }
+
+    private static int symmetryScore(boolean[] hot, int gridW, int gridH, int minX, int minY, int maxX, int maxY) {
+        int bw = maxX - minX + 1;
+        int bh = maxY - minY + 1;
+        if (bw <= 2 || bh <= 2) return 0;
+
+        int hits = 0;
+        int pairs = 0;
+
+        for (int y = minY; y <= maxY; y++) {
+            for (int dx = 0; dx < bw / 2; dx++) {
+                int lx = minX + dx;
+                int rx = maxX - dx;
+
+                boolean a = hot[y * gridW + lx];
+                boolean b = hot[y * gridW + rx];
+
+                if (a || b) {
+                    pairs++;
+                    if (a && b) hits++;
+                }
+            }
+        }
+
+        if (pairs == 0) return 0;
+
+        float s = hits / (float)pairs;
+
+        if (s > 0.62f) return 26;
+        if (s > 0.42f) return 15;
+        return 0;
+    }
+
+    private static int organicScore(boolean[] hot, int gridW, int gridH, int minX, int minY, int maxX, int maxY) {
+        int bw = maxX - minX + 1;
+        int bh = maxY - minY + 1;
+        if (bw <= 2 || bh <= 2) return 0;
+
+        int rowChanges = 0;
+        int activeRows = 0;
+        int prevWidth = -1;
+
+        for (int y = minY; y <= maxY; y++) {
+            int rowMin = 9999;
+            int rowMax = -1;
+
+            for (int x = minX; x <= maxX; x++) {
+                if (hot[y * gridW + x]) {
+                    if (x < rowMin) rowMin = x;
+                    if (x > rowMax) rowMax = x;
+                }
+            }
+
+            if (rowMax >= rowMin) {
+                int width = rowMax - rowMin + 1;
+
+                if (prevWidth >= 0 && Math.abs(width - prevWidth) > 1) {
+                    rowChanges++;
+                }
+
+                prevWidth = width;
+                activeRows++;
+            }
+        }
+
+        if (activeRows < 3) return 0;
+
+        float variation = rowChanges / (float)activeRows;
+
+        // Organic bodies vary row by row; furniture often stays constant.
+        if (variation > 0.32f && variation < 0.88f) return 25;
+        if (variation > 0.18f) return 12;
+
+        return -18;
+    }
+
+    private static void drawHumanSpiritSilhouette(int[] out, int w, int h, int x0, int y0, int x1, int y1, int color, int score) {
+        int cx = (x0 + x1) / 2;
+        int height = y1 - y0;
+        int width = x1 - x0;
+
+        int headR = clamp(height / 10, 5, 24);
+        int headY = y0 + height / 7;
+        int neckY = y0 + height / 4;
+        int chestY = y0 + height / 2;
+        int hipY = y0 + height * 68 / 100;
+
+        int alphaColor = color;
+
+        drawCircle(out, w, h, cx, headY, headR, alphaColor, 3);
+
+        drawLine(out, w, h, cx, headY + headR, cx, hipY, alphaColor, 3);
+
+        drawLine(out, w, h, cx - width / 3, neckY + height / 12, cx + width / 3, neckY + height / 12, alphaColor, 3);
+
+        drawLine(out, w, h, cx - width / 3, neckY + height / 12, cx - width / 2, chestY, alphaColor, 2);
+        drawLine(out, w, h, cx + width / 3, neckY + height / 12, cx + width / 2, chestY, alphaColor, 2);
+
+        drawLine(out, w, h, cx, hipY, cx - width / 3, y1 - 4, alphaColor, 3);
+        drawLine(out, w, h, cx, hipY, cx + width / 3, y1 - 4, alphaColor, 3);
+
+        drawRectCorners(out, w, h, x0, y0, x1, y1, argb(255, 255, 255), score > 150 ? 5 : 3);
+    }
+
+    private static void drawAnimalSilhouette(int[] out, int w, int h, int x0, int y0, int x1, int y1, int color, int score) {
+        int cx0 = x0 + (x1 - x0) / 5;
+        int cx1 = x1 - (x1 - x0) / 5;
+        int cy = (y0 + y1) / 2;
+        int height = y1 - y0;
+
+        drawLine(out, w, h, cx0, cy, cx1, cy, color, 4);
+        drawLine(out, w, h, cx1, cy, x1 - 3, cy - height / 5, color, 3);
+
+        drawLine(out, w, h, cx0, cy, x0 + 4, y1 - 3, color, 3);
+        drawLine(out, w, h, cx1, cy, x1 - 4, y1 - 3, color, 3);
+
+        drawCircle(out, w, h, x1 - (x1 - x0) / 8, cy - height / 5, Math.max(4, height / 8), color, 2);
+        drawRectCorners(out, w, h, x0, y0, x1, y1, argb(255, 255, 255), score > 150 ? 5 : 3);
+    }
+
+    private static void drawSceneEdgesSubtle(int[] out, int[] edge, int w, int h) {
+        int n = w * h;
+
+        for (int i = 0; i < n; i++) {
+            if (edge[i] > 165) {
+                int r = (out[i] >> 16) & 0xFF;
+                int g = (out[i] >> 8) & 0xFF;
+                int b = out[i] & 0xFF;
+
+                out[i] = argb(clamp(r + 18), clamp(g + 38), clamp(b + 54));
+            }
+        }
     }
 
     private static int[] toGray(int[] px, int w, int h) {
@@ -233,7 +580,7 @@ public class PlasmaEngine {
 
         for (int i = 0; i < n; i++) {
             int d = Math.abs(gray[i] - prevGray[i]);
-            out[i] = clamp((d - 3) * 6);
+            out[i] = clamp((d - 4) * 6);
         }
 
         return out;
@@ -320,167 +667,21 @@ public class PlasmaEngine {
         return out;
     }
 
-    private static void drawHardSceneEdges(int[] out, int[] edge, int w, int h) {
-        int n = w * h;
+    private static void drawRectCorners(int[] out, int w, int h, int x0, int y0, int x1, int y1, int color, int thick) {
+        int lenX = Math.max(12, (x1 - x0) / 4);
+        int lenY = Math.max(12, (y1 - y0) / 4);
 
-        for (int i = 0; i < n; i++) {
-            if (edge[i] > 145) {
-                out[i] = argb(220, 255, 255);
-            } else if (edge[i] > 100) {
-                int r = (out[i] >> 16) & 0xFF;
-                int g = (out[i] >> 8) & 0xFF;
-                int b = out[i] & 0xFF;
+        drawLine(out, w, h, x0, y0, x0 + lenX, y0, color, thick);
+        drawLine(out, w, h, x0, y0, x0, y0 + lenY, color, thick);
 
-                out[i] = argb(
-                        clamp(r + 30),
-                        clamp(g + 80),
-                        clamp(b + 100)
-                );
-            }
-        }
-    }
+        drawLine(out, w, h, x1, y0, x1 - lenX, y0, color, thick);
+        drawLine(out, w, h, x1, y0, x1, y0 + lenY, color, thick);
 
-    private static void drawTargetBoxes(int[] out, int[] signal, int w, int h, boolean skeleton) {
-        int gridW = 56;
-        int gridH = Math.max(28, gridW * h / Math.max(1, w));
+        drawLine(out, w, h, x0, y1, x0 + lenX, y1, color, thick);
+        drawLine(out, w, h, x0, y1, x0, y1 - lenY, color, thick);
 
-        int cells = gridW * gridH;
-        int[] sums = new int[cells];
-        int[] counts = new int[cells];
-
-        for (int y = 0; y < h; y += 2) {
-            int gy = y * gridH / h;
-
-            for (int x = 0; x < w; x += 2) {
-                int gx = x * gridW / w;
-                int idx = gy * gridW + gx;
-
-                sums[idx] += signal[y * w + x];
-                counts[idx]++;
-            }
-        }
-
-        boolean[] hot = new boolean[cells];
-
-        for (int i = 0; i < cells; i++) {
-            int avg = counts[i] == 0 ? 0 : sums[i] / counts[i];
-            hot[i] = avg > 72;
-        }
-
-        boolean[] seen = new boolean[cells];
-        int[] stack = new int[cells];
-
-        int drawn = 0;
-
-        for (int i = 0; i < cells && drawn < 7; i++) {
-            if (!hot[i] || seen[i]) continue;
-
-            int sp = 0;
-            stack[sp++] = i;
-            seen[i] = true;
-
-            int minX = gridW;
-            int minY = gridH;
-            int maxX = 0;
-            int maxY = 0;
-            int total = 0;
-
-            while (sp > 0) {
-                int cur = stack[--sp];
-
-                int cx = cur % gridW;
-                int cy = cur / gridW;
-
-                if (cx < minX) minX = cx;
-                if (cy < minY) minY = cy;
-                if (cx > maxX) maxX = cx;
-                if (cy > maxY) maxY = cy;
-
-                total++;
-
-                for (int oy = -1; oy <= 1; oy++) {
-                    for (int ox = -1; ox <= 1; ox++) {
-                        if (Math.abs(ox) + Math.abs(oy) != 1) continue;
-
-                        int nx = cx + ox;
-                        int ny = cy + oy;
-
-                        if (nx < 0 || nx >= gridW || ny < 0 || ny >= gridH) continue;
-
-                        int ni = ny * gridW + nx;
-
-                        if (hot[ni] && !seen[ni]) {
-                            seen[ni] = true;
-                            stack[sp++] = ni;
-                        }
-                    }
-                }
-            }
-
-            int bw = maxX - minX + 1;
-            int bh = maxY - minY + 1;
-
-            if (total < 5 || bw < 2 || bh < 2) continue;
-
-            int x0 = clamp(minX * w / gridW - 8, 0, w - 1);
-            int y0 = clamp(minY * h / gridH - 8, 0, h - 1);
-            int x1 = clamp((maxX + 1) * w / gridW + 8, 0, w - 1);
-            int y1 = clamp((maxY + 1) * h / gridH + 8, 0, h - 1);
-
-            int color = argb(255, 80, 45);
-
-            drawRect(out, w, h, x0, y0, x1, y1, color, 3);
-
-            if (skeleton) {
-                int cx = (x0 + x1) / 2;
-                int top = y0 + (y1 - y0) / 5;
-                int mid = y0 + (y1 - y0) / 2;
-                int bot = y1 - (y1 - y0) / 8;
-
-                int sk = argb(255, 235, 185);
-
-                drawLine(out, w, h, cx, top, cx, bot, sk, 2);
-                drawLine(out, w, h, x0 + 6, mid, x1 - 6, mid, sk, 2);
-                drawLine(out, w, h, cx, bot, x0 + 8, y1 - 4, sk, 2);
-                drawLine(out, w, h, cx, bot, x1 - 8, y1 - 4, sk, 2);
-
-                int headR = Math.max(5, Math.min(18, (y1 - y0) / 8));
-                drawCircle(out, w, h, cx, top, headR, sk, 2);
-            }
-
-            drawn++;
-        }
-    }
-
-    private static void drawRect(int[] out, int w, int h, int x0, int y0, int x1, int y1, int color, int thick) {
-        for (int t = 0; t < thick; t++) {
-            drawLine(out, w, h, x0, y0 + t, x1, y0 + t, color, 1);
-            drawLine(out, w, h, x0, y1 - t, x1, y1 - t, color, 1);
-            drawLine(out, w, h, x0 + t, y0, x0 + t, y1, color, 1);
-            drawLine(out, w, h, x1 - t, y0, x1 - t, y1, color, 1);
-        }
-    }
-
-    private static void drawCircle(int[] out, int w, int h, int cx, int cy, int r, int color, int thick) {
-        int r2 = r * r;
-        int inner = Math.max(0, r - thick);
-        int inner2 = inner * inner;
-
-        for (int y = cy - r; y <= cy + r; y++) {
-            if (y < 0 || y >= h) continue;
-
-            for (int x = cx - r; x <= cx + r; x++) {
-                if (x < 0 || x >= w) continue;
-
-                int dx = x - cx;
-                int dy = y - cy;
-                int d2 = dx * dx + dy * dy;
-
-                if (d2 <= r2 && d2 >= inner2) {
-                    blendPixel(out, y * w + x, color, 230);
-                }
-            }
-        }
+        drawLine(out, w, h, x1, y1, x1 - lenX, y1, color, thick);
+        drawLine(out, w, h, x1, y1, x1, y1 - lenY, color, thick);
     }
 
     private static void drawLine(int[] out, int w, int h, int x0, int y0, int x1, int y1, int color, int thick) {
@@ -507,6 +708,28 @@ public class PlasmaEngine {
             if (e2 < dx) {
                 err += dx;
                 y0 += sy;
+            }
+        }
+    }
+
+    private static void drawCircle(int[] out, int w, int h, int cx, int cy, int r, int color, int thick) {
+        int r2 = r * r;
+        int inner = Math.max(0, r - thick);
+        int inner2 = inner * inner;
+
+        for (int y = cy - r; y <= cy + r; y++) {
+            if (y < 0 || y >= h) continue;
+
+            for (int x = cx - r; x <= cx + r; x++) {
+                if (x < 0 || x >= w) continue;
+
+                int dx = x - cx;
+                int dy = y - cy;
+                int d2 = dx * dx + dy * dy;
+
+                if (d2 <= r2 && d2 >= inner2) {
+                    blendPixel(out, y * w + x, color, 230);
+                }
             }
         }
     }
@@ -538,11 +761,11 @@ public class PlasmaEngine {
 
         int inv = 255 - alpha;
 
-        int r = (sr * alpha + dr * inv) / 255;
-        int g = (sg * alpha + dg * inv) / 255;
-        int b = (sb * alpha + db * inv) / 255;
-
-        out[idx] = argb(r, g, b);
+        out[idx] = argb(
+                (sr * alpha + dr * inv) / 255,
+                (sg * alpha + dg * inv) / 255,
+                (sb * alpha + db * inv) / 255
+        );
     }
 
     private static void ensureFloatArrays(int n) {
