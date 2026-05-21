@@ -7,36 +7,35 @@ public class PlasmaEngine {
     public static final int MODE_RED_IR = 3;
 
     private static int[] prevGray;
-    private static float[] persistence;
     private static float[] background;
+    private static float[] entityMemory;
+    private static float[] wallTraceMemory;
     private static int frameCount = 0;
 
-    private static final int MIN_LOCK_SCORE = 118;
-    private static final int MIN_BLOB_CELLS = 8;
-    private static final int MAX_LOCKS = 4;
+    private static final int MAX_LOCKS = 3;
 
     public static int[] apply(int[] px, int w, int h, int mode) {
         if (px == null || px.length != w * h) return px;
 
         switch (mode) {
             case MODE_LIVE:
-                return blueForensicVision(px, w, h);
+                return darkForensicView(px, w, h);
 
             case MODE_STACK:
-                return bioSpiritLockVision(px, w, h);
+                return wallTraceEntityView(px, w, h);
 
             case MODE_DELTA:
-                return motionOnlyBioLock(px, w, h);
+                return pureEntityMotionView(px, w, h);
 
             case MODE_RED_IR:
-                return redInfraBioVision(px, w, h);
+                return redSpecterView(px, w, h);
 
             default:
-                return bioSpiritLockVision(px, w, h);
+                return wallTraceEntityView(px, w, h);
         }
     }
 
-    private static int[] bioSpiritLockVision(int[] px, int w, int h) {
+    private static int[] wallTraceEntityView(int[] px, int w, int h) {
         int n = w * h;
 
         int[] gray = toGray(px, w, h);
@@ -45,14 +44,14 @@ public class PlasmaEngine {
         int[] motion = motionDiff(gray, w, h);
         int[] local = localContrast(gray, blur, w, h);
 
-        ensureFloatArrays(n);
+        ensureMemory(n);
         frameCount++;
 
         for (int i = 0; i < n; i++) {
-            if (frameCount < 5) {
+            if (frameCount < 8) {
                 background[i] = gray[i];
             } else {
-                background[i] = background[i] * 0.996f + gray[i] * 0.004f;
+                background[i] = background[i] * 0.9975f + gray[i] * 0.0025f;
             }
         }
 
@@ -65,63 +64,67 @@ public class PlasmaEngine {
             if (v > max) max = v;
         }
 
-        int range = Math.max(10, max - min);
+        int range = Math.max(12, max - min);
         int[] out = new int[n];
-        int[] entitySignal = new int[n];
+        int[] candidate = new int[n];
 
         for (int i = 0; i < n; i++) {
             int base = clamp((gray[i] - min) * 255 / range);
-            int bgDiff = clamp((int)Math.abs(gray[i] - background[i]) * 3);
+            int bgDiff = clamp((int)Math.abs(gray[i] - background[i]) * 4);
 
-            int e = edge[i];
-            int m = motion[i];
-            int lc = local[i];
+            int staticEdge = edge[i];
+            int moving = motion[i];
+            int texture = local[i];
 
-            int biologicalSignal = clamp(
-                    (int)(
-                            m * 2.8f +
-                            bgDiff * 1.15f +
-                            lc * 0.65f +
-                            Math.max(0, e - 38) * 0.75f
-                    )
+            int organic = clamp(
+                    moving * 4 +
+                    bgDiff * 2 +
+                    Math.max(0, texture - 10) +
+                    Math.max(0, staticEdge - 48)
             );
 
-            // Stop hard static furniture edges from acting like entities.
-            if (m < 10 && bgDiff < 12) {
-                biologicalSignal = clamp(biologicalSignal / 3);
-            }
+            // Critical: suppress dead furniture / door / wall edges.
+            if (moving < 8 && bgDiff < 10) organic = organic / 5;
+            if (staticEdge > 165 && moving < 14) organic = organic / 4;
 
-            entitySignal[i] = biologicalSignal;
+            candidate[i] = organic;
 
-            if (biologicalSignal > persistence[i]) {
-                persistence[i] = persistence[i] * 0.72f + biologicalSignal * 0.28f;
+            if (organic > entityMemory[i]) {
+                entityMemory[i] = entityMemory[i] * 0.70f + organic * 0.30f;
             } else {
-                persistence[i] *= 0.974f;
+                entityMemory[i] *= 0.982f;
             }
 
-            int mem = clamp((int)persistence[i]);
+            // WallTrace memory: very slow accumulator. It only brightens when the return repeats.
+            if (entityMemory[i] > 95) {
+                wallTraceMemory[i] = Math.min(255f, wallTraceMemory[i] * 0.985f + entityMemory[i] * 0.045f);
+            } else {
+                wallTraceMemory[i] *= 0.992f;
+            }
 
-            int r = clamp((int)(base * 0.04f + mem * 0.10f));
-            int g = clamp((int)(base * 0.22f + e * 0.38f + mem * 0.42f));
-            int b = clamp((int)(base * 0.72f + e * 0.70f + mem * 0.95f));
+            int mem = clamp((int)wallTraceMemory[i]);
 
-            if (mem > 145) {
-                r = clamp(r + 80);
-                g = clamp(g + 135);
+            int r = clamp((int)(base * 0.035f + mem * 0.06f));
+            int g = clamp((int)(base * 0.20f + staticEdge * 0.26f + mem * 0.34f));
+            int b = clamp((int)(base * 0.74f + staticEdge * 0.42f + mem * 0.90f));
+
+            if (mem > 125) {
+                r = clamp(r + 42);
+                g = clamp(g + 96);
                 b = 255;
             }
 
             out[i] = argb(r, g, b);
         }
 
-        drawSceneEdgesSubtle(out, edge, w, h);
-        drawBioSpiritLocks(out, entitySignal, edge, motion, gray, w, h);
+        drawSubtleWorldEdges(out, edge, w, h);
+        drawConfirmedEntities(out, candidate, edge, motion, gray, w, h, true);
 
         prevGray = gray;
         return out;
     }
 
-    private static int[] motionOnlyBioLock(int[] px, int w, int h) {
+    private static int[] pureEntityMotionView(int[] px, int w, int h) {
         int n = w * h;
 
         int[] gray = toGray(px, w, h);
@@ -129,41 +132,43 @@ public class PlasmaEngine {
         int[] edge = sobel(blur, w, h);
         int[] motion = motionDiff(gray, w, h);
 
-        ensureFloatArrays(n);
+        ensureMemory(n);
 
         int[] out = new int[n];
-        int[] signal = new int[n];
+        int[] candidate = new int[n];
 
         for (int i = 0; i < n; i++) {
-            int sig = clamp(motion[i] * 5 + Math.max(0, edge[i] - 55));
-            signal[i] = sig;
+            int sig = clamp(motion[i] * 6 + Math.max(0, edge[i] - 80));
+            if (motion[i] < 6) sig = sig / 4;
 
-            if (sig > persistence[i]) persistence[i] = persistence[i] * 0.6f + sig * 0.4f;
-            else persistence[i] *= 0.94f;
+            candidate[i] = sig;
 
-            int p = clamp((int)persistence[i]);
-            int base = gray[i] / 10;
+            if (sig > entityMemory[i]) entityMemory[i] = entityMemory[i] * 0.65f + sig * 0.35f;
+            else entityMemory[i] *= 0.94f;
 
-            int r = clamp(base + p);
-            int g = clamp(base + p / 2);
-            int b = clamp(base + edge[i] / 3);
+            int mem = clamp((int)entityMemory[i]);
+            int base = gray[i] / 11;
 
-            if (p > 150) {
+            int r = clamp(base + mem);
+            int g = clamp(base + mem / 2);
+            int b = clamp(base + edge[i] / 4);
+
+            if (mem > 145) {
                 r = 255;
-                g = clamp(80 + p / 2);
-                b = clamp(60 + p / 3);
+                g = clamp(90 + mem / 2);
+                b = clamp(50 + mem / 3);
             }
 
             out[i] = argb(r, g, b);
         }
 
-        drawBioSpiritLocks(out, signal, edge, motion, gray, w, h);
+        drawConfirmedEntities(out, candidate, edge, motion, gray, w, h, false);
 
         prevGray = gray;
         return out;
     }
 
-    private static int[] blueForensicVision(int[] px, int w, int h) {
+    private static int[] darkForensicView(int[] px, int w, int h) {
         int n = w * h;
         int[] gray = toGray(px, w, h);
         int[] edge = sobel(boxBlur(gray, w, h, 1), w, h);
@@ -177,16 +182,16 @@ public class PlasmaEngine {
             if (v > max) max = v;
         }
 
-        int range = Math.max(10, max - min);
+        int range = Math.max(12, max - min);
         int[] out = new int[n];
 
         for (int i = 0; i < n; i++) {
             int v = clamp((gray[i] - min) * 255 / range);
             int boosted = clamp((int)(Math.sqrt(v / 255.0) * 255.0));
 
-            int r = boosted / 14;
-            int g = boosted / 3 + edge[i] / 5;
-            int b = clamp(boosted + 25 + edge[i] / 2);
+            int r = boosted / 16;
+            int g = boosted / 4 + edge[i] / 8;
+            int b = clamp(boosted + edge[i] / 3);
 
             out[i] = argb(r, g, b);
         }
@@ -194,7 +199,7 @@ public class PlasmaEngine {
         return out;
     }
 
-    private static int[] redInfraBioVision(int[] px, int w, int h) {
+    private static int[] redSpecterView(int[] px, int w, int h) {
         int n = w * h;
         int[] out = new int[n];
 
@@ -219,19 +224,21 @@ public class PlasmaEngine {
         return out;
     }
 
-    private static void drawBioSpiritLocks(
+    private static void drawConfirmedEntities(
             int[] out,
             int[] signal,
             int[] edge,
             int[] motion,
             int[] gray,
             int w,
-            int h
+            int h,
+            boolean wallTrace
     ) {
-        int gridW = 64;
-        int gridH = Math.max(36, gridW * h / Math.max(1, w));
+        int gridW = 72;
+        int gridH = Math.max(40, gridW * h / Math.max(1, w));
 
         int cells = gridW * gridH;
+
         int[] sums = new int[cells];
         int[] edgeSums = new int[cells];
         int[] motionSums = new int[cells];
@@ -257,13 +264,16 @@ public class PlasmaEngine {
         boolean[] hot = new boolean[cells];
 
         for (int i = 0; i < cells; i++) {
-            int count = Math.max(1, counts[i]);
-            int avgSignal = sums[i] / count;
-            int avgMotion = motionSums[i] / count;
-            int avgEdge = edgeSums[i] / count;
+            int c = Math.max(1, counts[i]);
+            int avgSignal = sums[i] / c;
+            int avgMotion = motionSums[i] / c;
+            int avgEdge = edgeSums[i] / c;
 
-            // Low default sensitivity: do not even consider weak static edges.
-            hot[i] = avgSignal > 70 && (avgMotion > 10 || avgSignal > 120) && avgEdge > 18;
+            // Low sensitivity: must have organic activity or strong repeat return.
+            hot[i] =
+                    avgSignal > 92 &&
+                    avgEdge > 16 &&
+                    (avgMotion > 10 || avgSignal > 145);
         }
 
         boolean[] seen = new boolean[cells];
@@ -281,13 +291,16 @@ public class PlasmaEngine {
             int minY = gridH;
             int maxX = 0;
             int maxY = 0;
+
             int totalCells = 0;
             int totalSignal = 0;
             int totalMotion = 0;
             int totalEdge = 0;
+            int totalGray = 0;
 
             while (sp > 0) {
                 int cur = stack[--sp];
+
                 int cx = cur % gridW;
                 int cy = cur / gridW;
 
@@ -296,25 +309,48 @@ public class PlasmaEngine {
                 if (cx > maxX) maxX = cx;
                 if (cy > maxY) maxY = cy;
 
-                int count = Math.max(1, counts[cur]);
+                int c = Math.max(1, counts[cur]);
 
-                totalSignal += sums[cur] / count;
-                totalMotion += motionSums[cur] / count;
-                totalEdge += edgeSums[cur] / count;
+                totalSignal += sums[cur] / c;
+                totalMotion += motionSums[cur] / c;
+                totalEdge += edgeSums[cur] / c;
+                totalGray += graySums[cur] / c;
                 totalCells++;
 
-                int[][] neighbors = {
-                        {1, 0}, {-1, 0}, {0, 1}, {0, -1}
-                };
+                int nx;
+                int ny;
+                int ni;
 
-                for (int[] nb : neighbors) {
-                    int nx = cx + nb[0];
-                    int ny = cy + nb[1];
+                nx = cx + 1; ny = cy;
+                if (nx >= 0 && nx < gridW && ny >= 0 && ny < gridH) {
+                    ni = ny * gridW + nx;
+                    if (hot[ni] && !seen[ni]) {
+                        seen[ni] = true;
+                        stack[sp++] = ni;
+                    }
+                }
 
-                    if (nx < 0 || nx >= gridW || ny < 0 || ny >= gridH) continue;
+                nx = cx - 1; ny = cy;
+                if (nx >= 0 && nx < gridW && ny >= 0 && ny < gridH) {
+                    ni = ny * gridW + nx;
+                    if (hot[ni] && !seen[ni]) {
+                        seen[ni] = true;
+                        stack[sp++] = ni;
+                    }
+                }
 
-                    int ni = ny * gridW + nx;
+                nx = cx; ny = cy + 1;
+                if (nx >= 0 && nx < gridW && ny >= 0 && ny < gridH) {
+                    ni = ny * gridW + nx;
+                    if (hot[ni] && !seen[ni]) {
+                        seen[ni] = true;
+                        stack[sp++] = ni;
+                    }
+                }
 
+                nx = cx; ny = cy - 1;
+                if (nx >= 0 && nx < gridW && ny >= 0 && ny < gridH) {
+                    ni = ny * gridW + nx;
                     if (hot[ni] && !seen[ni]) {
                         seen[ni] = true;
                         stack[sp++] = ni;
@@ -322,11 +358,10 @@ public class PlasmaEngine {
                 }
             }
 
-            if (totalCells < MIN_BLOB_CELLS) continue;
+            if (totalCells < 9) continue;
 
             int bw = maxX - minX + 1;
             int bh = maxY - minY + 1;
-
             if (bw <= 0 || bh <= 0) continue;
 
             float aspect = bh / (float)bw;
@@ -335,46 +370,32 @@ public class PlasmaEngine {
             int avgSignal = totalSignal / Math.max(1, totalCells);
             int avgMotion = totalMotion / Math.max(1, totalCells);
             int avgEdge = totalEdge / Math.max(1, totalCells);
+            int avgGray = totalGray / Math.max(1, totalCells);
 
-            int score = figureScore(
-                    hot,
-                    gridW,
-                    gridH,
-                    minX,
-                    minY,
-                    maxX,
-                    maxY,
-                    aspect,
-                    fill,
-                    avgSignal,
-                    avgMotion,
-                    avgEdge
-            );
+            int score = figureScore(hot, gridW, gridH, minX, minY, maxX, maxY, aspect, fill, avgSignal, avgMotion, avgEdge, avgGray);
 
-            if (score < MIN_LOCK_SCORE) continue;
+            if (score < 132) continue;
 
-            int x0 = clamp(minX * w / gridW - 8, 0, w - 1);
-            int y0 = clamp(minY * h / gridH - 8, 0, h - 1);
-            int x1 = clamp((maxX + 1) * w / gridW + 8, 0, w - 1);
-            int y1 = clamp((maxY + 1) * h / gridH + 8, 0, h - 1);
+            int x0 = clamp(minX * w / gridW - 10, 0, w - 1);
+            int y0 = clamp(minY * h / gridH - 10, 0, h - 1);
+            int x1 = clamp((maxX + 1) * w / gridW + 10, 0, w - 1);
+            int y1 = clamp((maxY + 1) * h / gridH + 10, 0, h - 1);
 
-            if ((x1 - x0) < w * 0.045f || (y1 - y0) < h * 0.055f) continue;
-            if ((x1 - x0) > w * 0.80f || (y1 - y0) > h * 0.90f) continue;
+            int pw = x1 - x0;
+            int ph = y1 - y0;
 
-            int lockColor;
+            if (pw < w * 0.045f || ph < h * 0.055f) continue;
+            if (pw > w * 0.78f || ph > h * 0.88f) continue;
 
-            if (aspect > 1.25f) {
-                lockColor = argb(255, 90, 40);      // human/spirit vertical lock
-                drawHumanSpiritSilhouette(out, w, h, x0, y0, x1, y1, lockColor, score);
+            if (aspect >= 1.08f) {
+                drawSpiritHumanLock(out, w, h, x0, y0, x1, y1, score, wallTrace);
             } else {
-                lockColor = argb(255, 180, 40);     // animal/low compact lock
-                drawAnimalSilhouette(out, w, h, x0, y0, x1, y1, lockColor, score);
+                drawAnimalLock(out, w, h, x0, y0, x1, y1, score, wallTrace);
             }
 
             locks++;
         }
     }
-
     private static int figureScore(
             boolean[] hot,
             int gridW,
@@ -387,47 +408,43 @@ public class PlasmaEngine {
             float fill,
             int avgSignal,
             int avgMotion,
-            int avgEdge
+            int avgEdge,
+            int avgGray
     ) {
         int score = 0;
 
-        // Human/spirit standing shape.
-        if (aspect >= 1.15f && aspect <= 4.8f) score += 38;
+        if (aspect >= 1.08f && aspect <= 4.7f) score += 42;
+        if (aspect >= 0.35f && aspect < 1.08f) score += 25;
 
-        // Animal/creature compact shape.
-        if (aspect >= 0.35f && aspect < 1.25f) score += 24;
+        if (fill >= 0.09f && fill <= 0.62f) score += 24;
+        else score -= 38;
 
-        // Reject huge solid rectangles/furniture.
-        if (fill >= 0.10f && fill <= 0.72f) score += 22;
-        else score -= 28;
+        if (avgSignal > 110) score += 24;
+        if (avgMotion > 15) score += 34;
+        if (avgEdge > 24) score += 12;
 
-        if (avgSignal > 95) score += 22;
-        if (avgMotion > 14) score += 26;
-        if (avgEdge > 28) score += 14;
+        score += symmetryScore(hot, gridW, gridH, minX, minY, maxX, maxY);
+        score += organicRowScore(hot, gridW, gridH, minX, minY, maxX, maxY);
 
-        int symmetry = symmetryScore(hot, gridW, gridH, minX, minY, maxX, maxY);
-        score += symmetry;
-
-        int organic = organicScore(hot, gridW, gridH, minX, minY, maxX, maxY);
-        score += organic;
-
-        // Penalize perfect rectangles and wall-like blocks.
         int bw = maxX - minX + 1;
         int bh = maxY - minY + 1;
 
-        if (bw > gridW * 0.45f && bh < gridH * 0.18f) score -= 45;
-        if (bh > gridH * 0.55f && bw > gridW * 0.42f) score -= 35;
+        // furniture rejection
+        if (bw > gridW * 0.44f && bh < gridH * 0.16f) score -= 60;
+        if (bh > gridH * 0.56f && bw > gridW * 0.40f) score -= 45;
+
+        // too bright/flat usually means wall/light/door
+        if (avgGray > 220 && avgMotion < 18) score -= 35;
 
         return score;
     }
 
     private static int symmetryScore(boolean[] hot, int gridW, int gridH, int minX, int minY, int maxX, int maxY) {
         int bw = maxX - minX + 1;
-        int bh = maxY - minY + 1;
-        if (bw <= 2 || bh <= 2) return 0;
+        if (bw <= 2) return 0;
 
-        int hits = 0;
         int pairs = 0;
+        int hits = 0;
 
         for (int y = minY; y <= maxY; y++) {
             for (int dx = 0; dx < bw / 2; dx++) {
@@ -448,18 +465,14 @@ public class PlasmaEngine {
 
         float s = hits / (float)pairs;
 
-        if (s > 0.62f) return 26;
-        if (s > 0.42f) return 15;
+        if (s > 0.62f) return 28;
+        if (s > 0.42f) return 16;
         return 0;
     }
 
-    private static int organicScore(boolean[] hot, int gridW, int gridH, int minX, int minY, int maxX, int maxY) {
-        int bw = maxX - minX + 1;
-        int bh = maxY - minY + 1;
-        if (bw <= 2 || bh <= 2) return 0;
-
-        int rowChanges = 0;
+    private static int organicRowScore(boolean[] hot, int gridW, int gridH, int minX, int minY, int maxX, int maxY) {
         int activeRows = 0;
+        int rowChanges = 0;
         int prevWidth = -1;
 
         for (int y = minY; y <= maxY; y++) {
@@ -476,9 +489,7 @@ public class PlasmaEngine {
             if (rowMax >= rowMin) {
                 int width = rowMax - rowMin + 1;
 
-                if (prevWidth >= 0 && Math.abs(width - prevWidth) > 1) {
-                    rowChanges++;
-                }
+                if (prevWidth >= 0 && Math.abs(width - prevWidth) > 1) rowChanges++;
 
                 prevWidth = width;
                 activeRows++;
@@ -487,69 +498,70 @@ public class PlasmaEngine {
 
         if (activeRows < 3) return 0;
 
-        float variation = rowChanges / (float)activeRows;
+        float v = rowChanges / (float)activeRows;
 
-        // Organic bodies vary row by row; furniture often stays constant.
-        if (variation > 0.32f && variation < 0.88f) return 25;
-        if (variation > 0.18f) return 12;
-
-        return -18;
+        if (v > 0.33f && v < 0.88f) return 28;
+        if (v > 0.18f) return 12;
+        return -22;
     }
 
-    private static void drawHumanSpiritSilhouette(int[] out, int w, int h, int x0, int y0, int x1, int y1, int color, int score) {
+    private static void drawSpiritHumanLock(int[] out, int w, int h, int x0, int y0, int x1, int y1, int score, boolean wallTrace) {
+        int color = wallTrace ? argb(255, 255, 255) : argb(255, 80, 35);
+        int core = wallTrace ? argb(30, 205, 255) : argb(255, 160, 55);
+
         int cx = (x0 + x1) / 2;
         int height = y1 - y0;
         int width = x1 - x0;
 
         int headR = clamp(height / 10, 5, 24);
         int headY = y0 + height / 7;
-        int neckY = y0 + height / 4;
-        int chestY = y0 + height / 2;
+        int chestY = y0 + height * 42 / 100;
         int hipY = y0 + height * 68 / 100;
 
-        int alphaColor = color;
+        drawRectCorners(out, w, h, x0, y0, x1, y1, color, score > 165 ? 5 : 3);
 
-        drawCircle(out, w, h, cx, headY, headR, alphaColor, 3);
+        drawCircle(out, w, h, cx, headY, headR, core, 3);
+        drawLine(out, w, h, cx, headY + headR, cx, hipY, core, 3);
 
-        drawLine(out, w, h, cx, headY + headR, cx, hipY, alphaColor, 3);
+        drawLine(out, w, h, cx - width / 3, chestY, cx + width / 3, chestY, core, 3);
 
-        drawLine(out, w, h, cx - width / 3, neckY + height / 12, cx + width / 3, neckY + height / 12, alphaColor, 3);
+        drawLine(out, w, h, cx - width / 3, chestY, cx - width / 2, hipY, core, 2);
+        drawLine(out, w, h, cx + width / 3, chestY, cx + width / 2, hipY, core, 2);
 
-        drawLine(out, w, h, cx - width / 3, neckY + height / 12, cx - width / 2, chestY, alphaColor, 2);
-        drawLine(out, w, h, cx + width / 3, neckY + height / 12, cx + width / 2, chestY, alphaColor, 2);
-
-        drawLine(out, w, h, cx, hipY, cx - width / 3, y1 - 4, alphaColor, 3);
-        drawLine(out, w, h, cx, hipY, cx + width / 3, y1 - 4, alphaColor, 3);
-
-        drawRectCorners(out, w, h, x0, y0, x1, y1, argb(255, 255, 255), score > 150 ? 5 : 3);
+        drawLine(out, w, h, cx, hipY, cx - width / 3, y1 - 4, core, 3);
+        drawLine(out, w, h, cx, hipY, cx + width / 3, y1 - 4, core, 3);
     }
 
-    private static void drawAnimalSilhouette(int[] out, int w, int h, int x0, int y0, int x1, int y1, int color, int score) {
-        int cx0 = x0 + (x1 - x0) / 5;
-        int cx1 = x1 - (x1 - x0) / 5;
-        int cy = (y0 + y1) / 2;
+    private static void drawAnimalLock(int[] out, int w, int h, int x0, int y0, int x1, int y1, int score, boolean wallTrace) {
+        int color = wallTrace ? argb(220, 255, 255) : argb(255, 170, 45);
+        int core = wallTrace ? argb(40, 220, 255) : argb(255, 210, 80);
+
+        int width = x1 - x0;
         int height = y1 - y0;
+        int cy = (y0 + y1) / 2;
 
-        drawLine(out, w, h, cx0, cy, cx1, cy, color, 4);
-        drawLine(out, w, h, cx1, cy, x1 - 3, cy - height / 5, color, 3);
+        int body0 = x0 + width / 5;
+        int body1 = x1 - width / 5;
 
-        drawLine(out, w, h, cx0, cy, x0 + 4, y1 - 3, color, 3);
-        drawLine(out, w, h, cx1, cy, x1 - 4, y1 - 3, color, 3);
+        drawRectCorners(out, w, h, x0, y0, x1, y1, color, score > 165 ? 5 : 3);
 
-        drawCircle(out, w, h, x1 - (x1 - x0) / 8, cy - height / 5, Math.max(4, height / 8), color, 2);
-        drawRectCorners(out, w, h, x0, y0, x1, y1, argb(255, 255, 255), score > 150 ? 5 : 3);
+        drawLine(out, w, h, body0, cy, body1, cy, core, 4);
+        drawCircle(out, w, h, x1 - width / 8, cy - height / 5, Math.max(4, height / 8), core, 2);
+
+        drawLine(out, w, h, body0, cy, x0 + width / 7, y1 - 4, core, 3);
+        drawLine(out, w, h, body1, cy, x1 - width / 7, y1 - 4, core, 3);
     }
 
-    private static void drawSceneEdgesSubtle(int[] out, int[] edge, int w, int h) {
+    private static void drawSubtleWorldEdges(int[] out, int[] edge, int w, int h) {
         int n = w * h;
 
         for (int i = 0; i < n; i++) {
-            if (edge[i] > 165) {
+            if (edge[i] > 175) {
                 int r = (out[i] >> 16) & 0xFF;
                 int g = (out[i] >> 8) & 0xFF;
                 int b = out[i] & 0xFF;
 
-                out[i] = argb(clamp(r + 18), clamp(g + 38), clamp(b + 54));
+                out[i] = argb(clamp(r + 12), clamp(g + 26), clamp(b + 42));
             }
         }
     }
@@ -580,7 +592,7 @@ public class PlasmaEngine {
 
         for (int i = 0; i < n; i++) {
             int d = Math.abs(gray[i] - prevGray[i]);
-            out[i] = clamp((d - 4) * 6);
+            out[i] = clamp((d - 4) * 7);
         }
 
         return out;
@@ -608,11 +620,11 @@ public class PlasmaEngine {
 
                 int gx =
                         -g[i - w - 1] - 2 * g[i - 1] - g[i + w - 1]
-                        + g[i - w + 1] + 2 * g[i + 1] + g[i + w + 1];
+                                + g[i - w + 1] + 2 * g[i + 1] + g[i + w + 1];
 
                 int gy =
                         -g[i - w - 1] - 2 * g[i - w] - g[i - w + 1]
-                        + g[i + w - 1] + 2 * g[i + w] + g[i + w + 1];
+                                + g[i + w - 1] + 2 * g[i + w] + g[i + w + 1];
 
                 out[i] = clamp((int)Math.sqrt(gx * gx + gy * gy) / 4);
             }
@@ -668,8 +680,8 @@ public class PlasmaEngine {
     }
 
     private static void drawRectCorners(int[] out, int w, int h, int x0, int y0, int x1, int y1, int color, int thick) {
-        int lenX = Math.max(12, (x1 - x0) / 4);
-        int lenY = Math.max(12, (y1 - y0) / 4);
+        int lenX = Math.max(14, (x1 - x0) / 4);
+        int lenY = Math.max(14, (y1 - y0) / 4);
 
         drawLine(out, w, h, x0, y0, x0 + lenX, y0, color, thick);
         drawLine(out, w, h, x0, y0, x0, y0 + lenY, color, thick);
@@ -768,14 +780,18 @@ public class PlasmaEngine {
         );
     }
 
-    private static void ensureFloatArrays(int n) {
-        if (persistence == null || persistence.length != n) {
-            persistence = new float[n];
-        }
-
+    private static void ensureMemory(int n) {
         if (background == null || background.length != n) {
             background = new float[n];
             frameCount = 0;
+        }
+
+        if (entityMemory == null || entityMemory.length != n) {
+            entityMemory = new float[n];
+        }
+
+        if (wallTraceMemory == null || wallTraceMemory.length != n) {
+            wallTraceMemory = new float[n];
         }
     }
 
