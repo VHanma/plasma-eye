@@ -6,6 +6,23 @@ public class PlasmaEngine {
     public static final int MODE_DELTA = 2;
     public static final int MODE_RED_IR = 3;
 
+    private static int activeFilter = MODE_STACK;
+
+    public static void nextFilter() {
+        if (activeFilter == MODE_STACK) activeFilter = MODE_DELTA;
+        else if (activeFilter == MODE_DELTA) activeFilter = MODE_RED_IR;
+        else if (activeFilter == MODE_RED_IR) activeFilter = MODE_LIVE;
+        else activeFilter = MODE_STACK;
+    }
+
+    public static String filterName() {
+        if (activeFilter == MODE_STACK) return "WRAITH LOCK";
+        if (activeFilter == MODE_DELTA) return "MOTION HUNTER";
+        if (activeFilter == MODE_RED_IR) return "RED BIO TRACE";
+        if (activeFilter == MODE_LIVE) return "TACTICAL BLUE";
+        return "WRAITH LOCK";
+    }
+
     private static int[] prevGray;
     private static float[] background;
     private static float[] entityMemory;
@@ -17,7 +34,9 @@ public class PlasmaEngine {
     public static int[] apply(int[] px, int w, int h, int mode) {
         if (px == null || px.length != w * h) return px;
 
-        switch (mode) {
+        int selected = activeFilter;
+
+        switch (selected) {
             case MODE_LIVE:
                 return darkForensicView(px, w, h);
 

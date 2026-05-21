@@ -123,7 +123,7 @@ public class SensorFieldView extends View {
             lastTap = now;
             postDelayed(() -> {
                 if (System.currentTimeMillis() - lastTap >= 320L) {
-                    layer = (layer + 1) % 5;
+                    PlasmaEngine.nextFilter();
                     flashUntil = System.currentTimeMillis() + 850L;
                     invalidate();
                 }
@@ -614,7 +614,7 @@ public class SensorFieldView extends View {
 
         p.setTextSize(30f);
         p.setColor(Color.argb(255, 255, 255, 255));
-        c.drawText(layerName(), 48, 66, p);
+        c.drawText(PlasmaEngine.filterName(), 48, 66, p);
 
         p.setTextSize(20f);
         p.setColor(Color.argb(245, 0, 255, 210));
