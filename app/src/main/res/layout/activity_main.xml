@@ -20,6 +20,21 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <!-- Strike tracker HUD top-left -->
+    <com.plasmacam.StrikeOverlayView
+        android:id="@+id/strikeOverlayView"
+        android:layout_width="280dp"
+        android:layout_height="380dp"
+        android:layout_gravity="top|start"
+        android:layout_marginTop="8dp"
+        android:layout_marginStart="4dp" />
+
+    <com.plasmacam.XRayVisionView
+        android:id="@+id/xrayVisionView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- Bottom controls -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -102,17 +117,30 @@
                 android:text="10ms" />
         </LinearLayout>
 
-        <Button
-            android:id="@+id/btnMode"
+        <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:text="NEXT MODE" />
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center">
+
+            <Button
+                android:id="@+id/btnMode"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="8dp"
+                android:text="NEXT MODE" />
+
+            <Button
+                android:id="@+id/btnFlipCamera"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:text="FLIP CAM" />
+
+        </LinearLayout>
 
     </LinearLayout>
-
-    <com.plasmacam.XRayVisionView
-        android:id="@+id/xrayVisionView"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent" />
 
 </FrameLayout>
