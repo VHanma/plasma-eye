@@ -95,12 +95,19 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android platform and build tools
+      - name: Install Android 17 preview platform
         shell: bash
         run: |
           set -euo pipefail
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager 'platform-tools' 'platforms;android-37' 'build-tools;36.0.0'
+          sdkmanager --list --channel=3 > /tmp/sdk-list.txt
+          grep -E 'platforms;android-(37|CinnamonBun)|build-tools;37' /tmp/sdk-list.txt | head -40 || true
+          PLATFORM_PACKAGE="$(grep -oE 'platforms;android-(37|CinnamonBun)' /tmp/sdk-list.txt | head -1 || true)"
+          if [ -z "$PLATFORM_PACKAGE" ]; then
+            echo 'Android 17 preview platform package was not exposed by sdkmanager --channel=3'
+            exit 1
+          fi
+          echo "Installing preview platform: $PLATFORM_PACKAGE"
+          sdkmanager --channel=3 "$PLATFORM_PACKAGE" 'platform-tools' 'build-tools;36.0.0'
 
       - name: Set up Gradle 9.5
         uses: gradle/actions/setup-gradle@v4
