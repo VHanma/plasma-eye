@@ -21,22 +21,32 @@ jobs:
       - name: Checkout build branch
         uses: actions/checkout@v4
 
-      - name: Verify source shards
+      - name: Verify source microshards
         shell: bash
         run: |
           set -euo pipefail
           cat > /tmp/shards.sha256 <<'EOF'
           33e4565f7320a9c7be082d8c1b956471ea8efb6c0911103d30d160813a7f5b58  nhi-build/source.b64.00
           9a7e58fc5087dffd51e322b1b4ffdd7dc2ca50943998021c888913148b86bcb1  nhi-build/source.b64.01
-          73b1c203b27acdabbaa102e66b09c880ae084b0f13f128a071368bb028d00a53  nhi-build/source.b64.02
+          a8208c4483d0ee0a3635c50400c149e5646179c9597658a6f70aead87974c7a2  nhi-build/source.b64.02.00
+          5d34f7d86c53ddcd33b89180fdc21074a096fca3d779d2e21024b0fe88bacf26  nhi-build/source.b64.02.01
+          8d3b62885404a4d40b0fe9a7a7bb463e3a1057881d30a824a85ce729f6c62d32  nhi-build/source.b64.02.02
+          6d44cd7274c4a50691ff5b3675067b705bbb2334a8c85f3a92a54ffaa95d897d  nhi-build/source.b64.02.03
           a87b78b84403cfa534f94543b202ee0945590122ad718af79135500ee070fbd2  nhi-build/source.b64.03
           742d320058a8d751755a637d79760a19a7e6f5fbd37c4d02f186b53846f221ac  nhi-build/source.b64.04
-          f8256e5bccced88bc612ff928a3f9591ee7f0843fbba7c6e7d9aaea6d4cce7c2  nhi-build/source.b64.05
-          387335414ce86f0d3835264c76c124ce10ef91332126e0742cc59a8977a51c1e  nhi-build/source.b64.06
-          b0d9c2acfb4324a7eecaa9bf1b6a60092155556e0ccd6249adceafe2ba67059e  nhi-build/source.b64.07
+          765c8bbf7c6ee11674dc45c011ca76f1b4be70ae913aa276298b5cdf955e99a4  nhi-build/source.b64.05.00
+          b4f0b891f861d621daca7cbf6441f84fa6df6fa866e2aee0019fe2801db17b83  nhi-build/source.b64.05.01
+          b9324142f2b63da39443aaa358d73ce176c351c345d8a8cf2635ac17c5c059b0  nhi-build/source.b64.05.02
+          e5d025fa030e59516db10a4c710f49ba399a9b8f14116b109741130c216f8e2a  nhi-build/source.b64.05.03
+          a87e24ed9ee1d0e38c7e62b9982e05999a4b4b3ca65d3607311f61f48afe685c  nhi-build/source.b64.06.00
+          5dd975bb16ce59c5fa249ecd60bc38a5e0f8fdd2e58c0f35a12e33fa9522e9f6  nhi-build/source.b64.06.01
+          9c2c2c3063d62665c808c8bdfa3aa5c2c2ace56bdcebc0395a8b5a58d5f77d7b  nhi-build/source.b64.06.02
+          fe54c3e2f7988d5fe2f640d3260ea3081236f139af881dac16b5908a2e20759d  nhi-build/source.b64.06.03
+          ff96e7fac1212f30338dae7310ff79dea410975066ae368bf0dcd9e93b6f062c  nhi-build/source.b64.07.00
+          13ca82eb605a626790ba64860795cc2533e10f30c04e42fe7a192cc9ba69eeac  nhi-build/source.b64.07.01
+          70e9cca8d7e525bac0face2a86a8c8a46cf039bd238f8f9cd71ec9271cc61561  nhi-build/source.b64.07.02
           EOF
           sha256sum -c /tmp/shards.sha256
-          wc -c nhi-build/source.b64.*
 
       - name: Reconstruct and verify NHI Matrix source
         shell: bash
@@ -45,8 +55,16 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import base64, hashlib
-          parts = sorted(Path('nhi-build').glob('source.b64.*'))
-          text = ''.join(p.read_text(encoding='ascii') for p in parts)
+          parts = [
+              'source.b64.00','source.b64.01',
+              'source.b64.02.00','source.b64.02.01','source.b64.02.02','source.b64.02.03',
+              'source.b64.03','source.b64.04',
+              'source.b64.05.00','source.b64.05.01','source.b64.05.02','source.b64.05.03',
+              'source.b64.06.00','source.b64.06.01','source.b64.06.02','source.b64.06.03',
+              'source.b64.07.00','source.b64.07.01','source.b64.07.02',
+          ]
+          root = Path('nhi-build')
+          text = ''.join((root / name).read_text(encoding='ascii') for name in parts)
           assert len(text) == 90928, f'Unexpected Base64 length: {len(text)}'
           raw = base64.b64decode(text, validate=True)
           digest = hashlib.sha256(raw).hexdigest()
