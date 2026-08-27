@@ -8,6 +8,7 @@ on:
     paths:
       - '.github/workflows/nhi-matrix-apk.yml'
       - 'nhi-build/forge-overrides.b64.*'
+      - 'nhi-build/forge-hotfix.b64.*'
 
 permissions:
   contents: read
@@ -47,7 +48,22 @@ jobs:
           cp -R /tmp/forge-overrides/overrides/app/src/main/java/com/vhanma/nhimatrix/forge /tmp/nhi-src/NHI-Matrix-Lab/app/src/main/java/com/vhanma/nhimatrix/
           cp /tmp/forge-overrides/overrides/app/src/main/java/com/vhanma/nhimatrix/ui/ReverseEngineeringApp.kt /tmp/nhi-src/NHI-Matrix-Lab/app/src/main/java/com/vhanma/nhimatrix/ui/
 
-      - name: Apply compiler, launcher and package fixes
+      - name: Apply v0.6.1 synchronized-output hotfix
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat nhi-build/forge-hotfix.b64.* > /tmp/forge-hotfix.b64
+          test "$(wc -c < /tmp/forge-hotfix.b64)" = "16764"
+          base64 --decode /tmp/forge-hotfix.b64 > /tmp/forge-hotfix.zip
+          echo 'cd5246f8e8865b8abf4c8c455c16076409cab7dcea8de3ef23baffcab0fbb315  /tmp/forge-hotfix.zip' | sha256sum -c -
+          unzip -t /tmp/forge-hotfix.zip >/dev/null
+          rm -rf /tmp/forge-hotfix
+          mkdir -p /tmp/forge-hotfix
+          unzip -q /tmp/forge-hotfix.zip -d /tmp/forge-hotfix
+          cp /tmp/forge-hotfix/hotfix/app/src/main/java/com/vhanma/nhimatrix/ui/ReverseEngineeringApp.kt /tmp/nhi-src/NHI-Matrix-Lab/app/src/main/java/com/vhanma/nhimatrix/ui/
+          grep -q 'ForceMotionForge' /tmp/nhi-src/NHI-Matrix-Lab/app/src/main/java/com/vhanma/nhimatrix/ui/ReverseEngineeringApp.kt
+
+      - name: Apply compiler launcher and package fixes
         shell: bash
         run: |
           set -euo pipefail
@@ -56,8 +72,6 @@ jobs:
           import re
 
           src = Path('/tmp/nhi-src/NHI-Matrix-Lab')
-
-          # Keep legacy diagnostics source compiling even though the new launcher no longer centers it.
           p = src / 'app/src/main/java/com/vhanma/nhimatrix/ui/NhiMatrixApp.kt'
           s = p.read_text()
           s = s.replace('@Composable\nprivate fun LightLab() {', '@Composable\nprivate fun ColumnScope.LightLab() {')
@@ -80,13 +94,12 @@ jobs:
           g = src / 'app/build.gradle.kts'
           t = g.read_text()
           t = re.sub(r'applicationId\s*=\s*"[^"]+"', 'applicationId = "com.vhanma.nhiforge.r3"', t)
-          t = re.sub(r'versionCode\s*=\s*\d+', 'versionCode = 7', t)
-          t = re.sub(r'versionName\s*=\s*"[^"]+"', 'versionName = "0.6.0-rival3-techforge"', t)
+          t = re.sub(r'versionCode\s*=\s*\d+', 'versionCode = 8', t)
+          t = re.sub(r'versionName\s*=\s*"[^"]+"', 'versionName = "0.6.1-rival3-techforge"', t)
           g.write_text(t)
-
           print('Launcher: ReverseEngineeringApp')
           print('Package: com.vhanma.nhiforge.r3')
-          print('Version: 0.6.0-rival3-techforge')
+          print('Version: 0.6.1-rival3-techforge')
           PY
 
       - uses: actions/setup-java@v5
@@ -128,6 +141,7 @@ jobs:
           APKSIGNER="$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner"
           "$AAPT" dump badging "$APK" | tee /tmp/apk-badging.txt
           grep -q "package: name='com.vhanma.nhiforge.r3'" /tmp/apk-badging.txt
+          grep -q "versionName='0.6.1-rival3-techforge'" /tmp/apk-badging.txt
           "$APKSIGNER" verify --verbose --print-certs "$APK" | tee /tmp/apk-signature.txt
           unzip -t "$APK" >/tmp/apk-zip-test.txt
 
@@ -136,16 +150,16 @@ jobs:
         run: |
           set -euo pipefail
           APK=/tmp/nhi-src/NHI-Matrix-Lab/app/build/outputs/apk/debug/app-debug.apk
-          cp "$APK" /tmp/NHI-Tech-Forge-v0.6.0-rival3.apk
-          sha256sum /tmp/NHI-Tech-Forge-v0.6.0-rival3.apk | tee /tmp/NHI-Tech-Forge-v0.6.0-rival3.apk.sha256
+          cp "$APK" /tmp/NHI-Tech-Forge-v0.6.1-rival3.apk
+          sha256sum /tmp/NHI-Tech-Forge-v0.6.1-rival3.apk | tee /tmp/NHI-Tech-Forge-v0.6.1-rival3.apk.sha256
 
       - name: Upload installable APK
         uses: actions/upload-artifact@v4
         with:
-          name: NHI-Tech-Forge-v0.6.0-rival3
+          name: NHI-Tech-Forge-v0.6.1-rival3
           path: |
-            /tmp/NHI-Tech-Forge-v0.6.0-rival3.apk
-            /tmp/NHI-Tech-Forge-v0.6.0-rival3.apk.sha256
+            /tmp/NHI-Tech-Forge-v0.6.1-rival3.apk
+            /tmp/NHI-Tech-Forge-v0.6.1-rival3.apk.sha256
             /tmp/apk-badging.txt
             /tmp/apk-signature.txt
           if-no-files-found: error
