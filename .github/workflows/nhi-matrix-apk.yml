@@ -31,6 +31,25 @@ jobs:
           mkdir -p /tmp/nhi-src
           unzip -q /tmp/nhi-source.zip -d /tmp/nhi-src
 
+      - name: Apply Rival 3 compiler fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('/tmp/nhi-src/NHI-Matrix-Lab/app/src/main/java/com/vhanma/nhimatrix/ui/NhiMatrixApp.kt')
+          s = p.read_text()
+          old_light = '@Composable\nprivate fun LightLab() {'
+          new_light = '@Composable\nprivate fun ColumnScope.LightLab() {'
+          old_cloak = '@Composable\nprivate fun CloakLab() {'
+          new_cloak = '@Composable\nprivate fun ColumnScope.CloakLab() {'
+          assert s.count(old_light) == 1, 'LightLab signature mismatch'
+          assert s.count(old_cloak) == 1, 'CloakLab signature mismatch'
+          s = s.replace(old_light, new_light).replace(old_cloak, new_cloak)
+          p.write_text(s)
+          print('Applied ColumnScope fixes to LightLab and CloakLab')
+          PY
+
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -66,15 +85,15 @@ jobs:
           set -euo pipefail
           APK=/tmp/nhi-src/NHI-Matrix-Lab/app/build/outputs/apk/debug/app-debug.apk
           test -s "$APK"
-          cp "$APK" /tmp/NHI-Matrix-Lab-v0.5.0-rival3-debug.apk
-          sha256sum /tmp/NHI-Matrix-Lab-v0.5.0-rival3-debug.apk | tee /tmp/NHI-Matrix-Lab-v0.5.0-rival3-debug.apk.sha256
+          cp "$APK" /tmp/NHI-Matrix-Lab-v0.5.1-rival3-debug.apk
+          sha256sum /tmp/NHI-Matrix-Lab-v0.5.1-rival3-debug.apk | tee /tmp/NHI-Matrix-Lab-v0.5.1-rival3-debug.apk.sha256
 
       - name: Upload installable APK
         uses: actions/upload-artifact@v4
         with:
-          name: NHI-Matrix-Lab-v0.5.0-rival3-debug
+          name: NHI-Matrix-Lab-v0.5.1-rival3-debug
           path: |
-            /tmp/NHI-Matrix-Lab-v0.5.0-rival3-debug.apk
-            /tmp/NHI-Matrix-Lab-v0.5.0-rival3-debug.apk.sha256
+            /tmp/NHI-Matrix-Lab-v0.5.1-rival3-debug.apk
+            /tmp/NHI-Matrix-Lab-v0.5.1-rival3-debug.apk.sha256
           if-no-files-found: error
           retention-days: 14
