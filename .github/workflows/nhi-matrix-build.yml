@@ -34,14 +34,20 @@ jobs:
           6d44cd7274c4a50691ff5b3675067b705bbb2334a8c85f3a92a54ffaa95d897d  nhi-build/source.b64.02.03
           a87b78b84403cfa534f94543b202ee0945590122ad718af79135500ee070fbd2  nhi-build/source.b64.03
           742d320058a8d751755a637d79760a19a7e6f5fbd37c4d02f186b53846f221ac  nhi-build/source.b64.04
-          765c8bbf7c6ee11674dc45c011ca76f1b4be70ae913aa276298b5cdf955e99a4  nhi-build/source.b64.05.00
+          fa78a0c4b6ea0b23fd85a1e1b9052e4ceaaeb2e5cbafbd59134f203f00309d43  nhi-build/source.b64.05.00.0
+          beac0da91688851519623e2845385dc354487515b60087941fd356bcbb21f9ad  nhi-build/source.b64.05.00.1
+          4e742622b1b57694dfe200f5613eb900ce99798555fce5548381aa69495b715f  nhi-build/source.b64.05.00.2
+          fdc1f979cc13d73d6636863ae898e92eef8e62bba0ddb3b1431cee256e12f019  nhi-build/source.b64.05.00.3
           b4f0b891f861d621daca7cbf6441f84fa6df6fa866e2aee0019fe2801db17b83  nhi-build/source.b64.05.01
           b9324142f2b63da39443aaa358d73ce176c351c345d8a8cf2635ac17c5c059b0  nhi-build/source.b64.05.02
           e5d025fa030e59516db10a4c710f49ba399a9b8f14116b109741130c216f8e2a  nhi-build/source.b64.05.03
           a87e24ed9ee1d0e38c7e62b9982e05999a4b4b3ca65d3607311f61f48afe685c  nhi-build/source.b64.06.00
           5dd975bb16ce59c5fa249ecd60bc38a5e0f8fdd2e58c0f35a12e33fa9522e9f6  nhi-build/source.b64.06.01
           9c2c2c3063d62665c808c8bdfa3aa5c2c2ace56bdcebc0395a8b5a58d5f77d7b  nhi-build/source.b64.06.02
-          fe54c3e2f7988d5fe2f640d3260ea3081236f139af881dac16b5908a2e20759d  nhi-build/source.b64.06.03
+          3fc760117d5bec950e3b8cc3fb670b3b1221a9b88f14e4414672d961f03ed9ca  nhi-build/source.b64.06.03.0
+          cd940ed6c48fc549106211416c39c6d2c2d8a7ed31c76ad1978495bbf782664f  nhi-build/source.b64.06.03.1
+          26c35a7827968507d50459b4a117e490830c37d2f04e65bbd469fcc46b05dbe4  nhi-build/source.b64.06.03.2
+          1d304d0dd257ad868f92b04441ebf077380625e26b76d7b372d67d8bdf60bfc7  nhi-build/source.b64.06.03.3
           ff96e7fac1212f30338dae7310ff79dea410975066ae368bf0dcd9e93b6f062c  nhi-build/source.b64.07.00
           13ca82eb605a626790ba64860795cc2533e10f30c04e42fe7a192cc9ba69eeac  nhi-build/source.b64.07.01
           70e9cca8d7e525bac0face2a86a8c8a46cf039bd238f8f9cd71ec9271cc61561  nhi-build/source.b64.07.02
@@ -59,8 +65,10 @@ jobs:
               'source.b64.00','source.b64.01',
               'source.b64.02.00','source.b64.02.01','source.b64.02.02','source.b64.02.03',
               'source.b64.03','source.b64.04',
-              'source.b64.05.00','source.b64.05.01','source.b64.05.02','source.b64.05.03',
-              'source.b64.06.00','source.b64.06.01','source.b64.06.02','source.b64.06.03',
+              'source.b64.05.00.0','source.b64.05.00.1','source.b64.05.00.2','source.b64.05.00.3',
+              'source.b64.05.01','source.b64.05.02','source.b64.05.03',
+              'source.b64.06.00','source.b64.06.01','source.b64.06.02',
+              'source.b64.06.03.0','source.b64.06.03.1','source.b64.06.03.2','source.b64.06.03.3',
               'source.b64.07.00','source.b64.07.01','source.b64.07.02',
           ]
           root = Path('nhi-build')
