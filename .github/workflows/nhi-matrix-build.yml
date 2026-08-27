@@ -1,0 +1,83 @@
+name: Rival 3 NHI Matrix APK Forge
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - rival3-nhi-matrix-build-v0.6
+    paths:
+      - 'nhi-build/**'
+      - '.github/workflows/nhi-matrix-build.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout build branch
+        uses: actions/checkout@v4
+
+      - name: Reconstruct and verify NHI Matrix source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat nhi-build/source.b64.* > /tmp/nhi-source.b64
+          base64 --decode /tmp/nhi-source.b64 > /tmp/nhi-source.zip
+          echo '4ef025585f9f679cf07d9c6879efd4a5ceb155e249b8b914f025d6b843aaca63  /tmp/nhi-source.zip' | sha256sum -c -
+          unzip -t /tmp/nhi-source.zip
+          rm -rf /tmp/nhi-src
+          mkdir -p /tmp/nhi-src
+          unzip -q /tmp/nhi-source.zip -d /tmp/nhi-src
+          test -f /tmp/nhi-src/NHI-Matrix-Lab/app/build.gradle.kts
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android platform and build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'platform-tools' 'platforms;android-37' 'build-tools;36.0.0'
+
+      - name: Set up Gradle 9.5
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+
+      - name: Build installable debug APK
+        shell: bash
+        working-directory: /tmp/nhi-src/NHI-Matrix-Lab
+        run: |
+          set -euo pipefail
+          gradle --version
+          gradle :app:assembleDebug --stacktrace --no-daemon
+
+      - name: Verify APK output
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=/tmp/nhi-src/NHI-Matrix-Lab/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          sha256sum "$APK" | tee /tmp/NHI-Matrix-Lab-debug.apk.sha256
+          cp "$APK" /tmp/NHI-Matrix-Lab-v0.5.0-rival3-debug.apk
+
+      - name: Upload installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: NHI-Matrix-Lab-v0.5.0-rival3-debug
+          path: |
+            /tmp/NHI-Matrix-Lab-v0.5.0-rival3-debug.apk
+            /tmp/NHI-Matrix-Lab-debug.apk.sha256
+          if-no-files-found: error
+          retention-days: 14
