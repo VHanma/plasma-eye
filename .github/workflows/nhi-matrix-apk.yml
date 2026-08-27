@@ -31,13 +31,16 @@ jobs:
           mkdir -p /tmp/nhi-src
           unzip -q /tmp/nhi-source.zip -d /tmp/nhi-src
 
-      - name: Apply Rival 3 compiler fixes
+      - name: Apply Rival 3 compiler and clean-install fixes
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          p = Path('/tmp/nhi-src/NHI-Matrix-Lab/app/src/main/java/com/vhanma/nhimatrix/ui/NhiMatrixApp.kt')
+          import re
+
+          src = Path('/tmp/nhi-src/NHI-Matrix-Lab')
+          p = src / 'app/src/main/java/com/vhanma/nhimatrix/ui/NhiMatrixApp.kt'
           s = p.read_text()
           old_light = '@Composable\nprivate fun LightLab() {'
           new_light = '@Composable\nprivate fun ColumnScope.LightLab() {'
@@ -47,7 +50,25 @@ jobs:
           assert s.count(old_cloak) == 1, 'CloakLab signature mismatch'
           s = s.replace(old_light, new_light).replace(old_cloak, new_cloak)
           p.write_text(s)
-          print('Applied ColumnScope fixes to LightLab and CloakLab')
+
+          g = src / 'app/build.gradle.kts'
+          t = g.read_text()
+          m = re.search(r'applicationId\s*=\s*"([^"]+)"', t)
+          assert m, 'applicationId not found in app/build.gradle.kts'
+          old_id = m.group(1)
+          new_id = 'com.vhanma.nhimatrix.rival3fix'
+          t = t[:m.start(1)] + new_id + t[m.end(1):]
+
+          vm = re.search(r'versionName\s*=\s*"([^"]+)"', t)
+          if vm:
+              t = t[:vm.start(1)] + '0.5.2-rival3-installfix' + t[vm.end(1):]
+          g.write_text(t)
+
+          print(f'Changed applicationId: {old_id} -> {new_id}')
+          for key in ('compileSdk', 'minSdk', 'targetSdk', 'versionCode', 'versionName'):
+              mm = re.search(rf'{key}\s*=\s*([^\n]+)', t)
+              if mm:
+                  print(key, '=', mm.group(1).strip())
           PY
 
       - uses: actions/setup-java@v5
@@ -79,21 +100,34 @@ jobs:
           set -euo pipefail
           gradle :app:assembleDebug --stacktrace --no-daemon
 
-      - name: Verify and stage APK
+      - name: Verify install metadata and signature
         shell: bash
         run: |
           set -euo pipefail
           APK=/tmp/nhi-src/NHI-Matrix-Lab/app/build/outputs/apk/debug/app-debug.apk
           test -s "$APK"
-          cp "$APK" /tmp/NHI-Matrix-Lab-v0.5.1-rival3-debug.apk
-          sha256sum /tmp/NHI-Matrix-Lab-v0.5.1-rival3-debug.apk | tee /tmp/NHI-Matrix-Lab-v0.5.1-rival3-debug.apk.sha256
+          AAPT="$ANDROID_SDK_ROOT/build-tools/36.0.0/aapt"
+          APKSIGNER="$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner"
+          "$AAPT" dump badging "$APK" | tee /tmp/apk-badging.txt
+          "$APKSIGNER" verify --verbose --print-certs "$APK" | tee /tmp/apk-signature.txt
+          unzip -t "$APK" >/tmp/apk-zip-test.txt
+
+      - name: Stage APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=/tmp/nhi-src/NHI-Matrix-Lab/app/build/outputs/apk/debug/app-debug.apk
+          cp "$APK" /tmp/NHI-Matrix-Lab-v0.5.2-rival3-installfix.apk
+          sha256sum /tmp/NHI-Matrix-Lab-v0.5.2-rival3-installfix.apk | tee /tmp/NHI-Matrix-Lab-v0.5.2-rival3-installfix.apk.sha256
 
       - name: Upload installable APK
         uses: actions/upload-artifact@v4
         with:
-          name: NHI-Matrix-Lab-v0.5.1-rival3-debug
+          name: NHI-Matrix-Lab-v0.5.2-rival3-installfix
           path: |
-            /tmp/NHI-Matrix-Lab-v0.5.1-rival3-debug.apk
-            /tmp/NHI-Matrix-Lab-v0.5.1-rival3-debug.apk.sha256
+            /tmp/NHI-Matrix-Lab-v0.5.2-rival3-installfix.apk
+            /tmp/NHI-Matrix-Lab-v0.5.2-rival3-installfix.apk.sha256
+            /tmp/apk-badging.txt
+            /tmp/apk-signature.txt
           if-no-files-found: error
           retention-days: 14
