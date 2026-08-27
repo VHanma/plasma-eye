@@ -1,4 +1,4 @@
-name: NHI Matrix APK Compiler
+name: NHI Tech Forge APK Compiler
 
 on:
   workflow_dispatch:
@@ -7,6 +7,7 @@ on:
       - rival3-nhi-matrix-build-v0.6
     paths:
       - '.github/workflows/nhi-matrix-apk.yml'
+      - 'nhi-build/forge-overrides.b64.*'
 
 permissions:
   contents: read
@@ -18,7 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Reconstruct exact verified v0.5 source
+      - name: Reconstruct exact verified v0.5 foundation
         shell: bash
         run: |
           set -euo pipefail
@@ -31,7 +32,22 @@ jobs:
           mkdir -p /tmp/nhi-src
           unzip -q /tmp/nhi-source.zip -d /tmp/nhi-src
 
-      - name: Apply Rival 3 compiler and clean-install fixes
+      - name: Verify and apply Rival 3 reverse-engineering overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat nhi-build/forge-overrides.b64.* > /tmp/forge-overrides.b64
+          test "$(wc -c < /tmp/forge-overrides.b64)" = "21592"
+          base64 --decode /tmp/forge-overrides.b64 > /tmp/forge-overrides.zip
+          echo 'fb63129453db2a29b44cc67af39cb599633b11d6ec6c03fcbe25a8b28e7893fe  /tmp/forge-overrides.zip' | sha256sum -c -
+          unzip -t /tmp/forge-overrides.zip >/dev/null
+          rm -rf /tmp/forge-overrides
+          mkdir -p /tmp/forge-overrides
+          unzip -q /tmp/forge-overrides.zip -d /tmp/forge-overrides
+          cp -R /tmp/forge-overrides/overrides/app/src/main/java/com/vhanma/nhimatrix/forge /tmp/nhi-src/NHI-Matrix-Lab/app/src/main/java/com/vhanma/nhimatrix/
+          cp /tmp/forge-overrides/overrides/app/src/main/java/com/vhanma/nhimatrix/ui/ReverseEngineeringApp.kt /tmp/nhi-src/NHI-Matrix-Lab/app/src/main/java/com/vhanma/nhimatrix/ui/
+
+      - name: Apply compiler, launcher and package fixes
         shell: bash
         run: |
           set -euo pipefail
@@ -40,35 +56,37 @@ jobs:
           import re
 
           src = Path('/tmp/nhi-src/NHI-Matrix-Lab')
+
+          # Keep legacy diagnostics source compiling even though the new launcher no longer centers it.
           p = src / 'app/src/main/java/com/vhanma/nhimatrix/ui/NhiMatrixApp.kt'
           s = p.read_text()
-          old_light = '@Composable\nprivate fun LightLab() {'
-          new_light = '@Composable\nprivate fun ColumnScope.LightLab() {'
-          old_cloak = '@Composable\nprivate fun CloakLab() {'
-          new_cloak = '@Composable\nprivate fun ColumnScope.CloakLab() {'
-          assert s.count(old_light) == 1, 'LightLab signature mismatch'
-          assert s.count(old_cloak) == 1, 'CloakLab signature mismatch'
-          s = s.replace(old_light, new_light).replace(old_cloak, new_cloak)
+          s = s.replace('@Composable\nprivate fun LightLab() {', '@Composable\nprivate fun ColumnScope.LightLab() {')
+          s = s.replace('@Composable\nprivate fun CloakLab() {', '@Composable\nprivate fun ColumnScope.CloakLab() {')
           p.write_text(s)
+
+          main = src / 'app/src/main/java/com/vhanma/nhimatrix/MainActivity.kt'
+          m = main.read_text()
+          m = m.replace('import com.vhanma.nhimatrix.ui.NhiMatrixApp', 'import com.vhanma.nhimatrix.ui.ReverseEngineeringApp')
+          m = m.replace('setContent { NhiMatrixApp() }', 'setContent { ReverseEngineeringApp() }')
+          main.write_text(m)
+
+          manifest = src / 'app/src/main/AndroidManifest.xml'
+          x = manifest.read_text()
+          if 'android.permission.VIBRATE' not in x:
+              x = x.replace('<uses-permission android:name="android.permission.CAMERA" />', '<uses-permission android:name="android.permission.CAMERA" />\n    <uses-permission android:name="android.permission.VIBRATE" />')
+          x = x.replace('android:label="NHI Matrix Lab"', 'android:label="NHI Tech Forge"')
+          manifest.write_text(x)
 
           g = src / 'app/build.gradle.kts'
           t = g.read_text()
-          m = re.search(r'applicationId\s*=\s*"([^"]+)"', t)
-          assert m, 'applicationId not found in app/build.gradle.kts'
-          old_id = m.group(1)
-          new_id = 'com.vhanma.nhimatrix.rival3fix'
-          t = t[:m.start(1)] + new_id + t[m.end(1):]
-
-          vm = re.search(r'versionName\s*=\s*"([^"]+)"', t)
-          if vm:
-              t = t[:vm.start(1)] + '0.5.2-rival3-installfix' + t[vm.end(1):]
+          t = re.sub(r'applicationId\s*=\s*"[^"]+"', 'applicationId = "com.vhanma.nhiforge.r3"', t)
+          t = re.sub(r'versionCode\s*=\s*\d+', 'versionCode = 7', t)
+          t = re.sub(r'versionName\s*=\s*"[^"]+"', 'versionName = "0.6.0-rival3-techforge"', t)
           g.write_text(t)
 
-          print(f'Changed applicationId: {old_id} -> {new_id}')
-          for key in ('compileSdk', 'minSdk', 'targetSdk', 'versionCode', 'versionName'):
-              mm = re.search(rf'{key}\s*=\s*([^\n]+)', t)
-              if mm:
-                  print(key, '=', mm.group(1).strip())
+          print('Launcher: ReverseEngineeringApp')
+          print('Package: com.vhanma.nhiforge.r3')
+          print('Version: 0.6.0-rival3-techforge')
           PY
 
       - uses: actions/setup-java@v5
@@ -81,7 +99,7 @@ jobs:
         with:
           packages: platform-tools
 
-      - name: Install Android 17 compile platform
+      - name: Install Android compile platform
         shell: bash
         run: |
           set -euo pipefail
@@ -93,7 +111,7 @@ jobs:
         with:
           gradle-version: '9.5.0'
 
-      - name: Compile debug APK
+      - name: Compile NHI Tech Forge APK
         shell: bash
         working-directory: /tmp/nhi-src/NHI-Matrix-Lab
         run: |
@@ -109,6 +127,7 @@ jobs:
           AAPT="$ANDROID_SDK_ROOT/build-tools/36.0.0/aapt"
           APKSIGNER="$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner"
           "$AAPT" dump badging "$APK" | tee /tmp/apk-badging.txt
+          grep -q "package: name='com.vhanma.nhiforge.r3'" /tmp/apk-badging.txt
           "$APKSIGNER" verify --verbose --print-certs "$APK" | tee /tmp/apk-signature.txt
           unzip -t "$APK" >/tmp/apk-zip-test.txt
 
@@ -117,16 +136,16 @@ jobs:
         run: |
           set -euo pipefail
           APK=/tmp/nhi-src/NHI-Matrix-Lab/app/build/outputs/apk/debug/app-debug.apk
-          cp "$APK" /tmp/NHI-Matrix-Lab-v0.5.2-rival3-installfix.apk
-          sha256sum /tmp/NHI-Matrix-Lab-v0.5.2-rival3-installfix.apk | tee /tmp/NHI-Matrix-Lab-v0.5.2-rival3-installfix.apk.sha256
+          cp "$APK" /tmp/NHI-Tech-Forge-v0.6.0-rival3.apk
+          sha256sum /tmp/NHI-Tech-Forge-v0.6.0-rival3.apk | tee /tmp/NHI-Tech-Forge-v0.6.0-rival3.apk.sha256
 
       - name: Upload installable APK
         uses: actions/upload-artifact@v4
         with:
-          name: NHI-Matrix-Lab-v0.5.2-rival3-installfix
+          name: NHI-Tech-Forge-v0.6.0-rival3
           path: |
-            /tmp/NHI-Matrix-Lab-v0.5.2-rival3-installfix.apk
-            /tmp/NHI-Matrix-Lab-v0.5.2-rival3-installfix.apk.sha256
+            /tmp/NHI-Tech-Forge-v0.6.0-rival3.apk
+            /tmp/NHI-Tech-Forge-v0.6.0-rival3.apk.sha256
             /tmp/apk-badging.txt
             /tmp/apk-signature.txt
           if-no-files-found: error
