@@ -21,13 +21,39 @@ jobs:
       - name: Checkout build branch
         uses: actions/checkout@v4
 
+      - name: Verify source shards
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/shards.sha256 <<'EOF'
+          33e4565f7320a9c7be082d8c1b956471ea8efb6c0911103d30d160813a7f5b58  nhi-build/source.b64.00
+          9a7e58fc5087dffd51e322b1b4ffdd7dc2ca50943998021c888913148b86bcb1  nhi-build/source.b64.01
+          73b1c203b27acdabbaa102e66b09c880ae084b0f13f128a071368bb028d00a53  nhi-build/source.b64.02
+          a87b78b84403cfa534f94543b202ee0945590122ad718af79135500ee070fbd2  nhi-build/source.b64.03
+          742d320058a8d751755a637d79760a19a7e6f5fbd37c4d02f186b53846f221ac  nhi-build/source.b64.04
+          f8256e5bccced88bc612ff928a3f9591ee7f0843fbba7c6e7d9aaea6d4cce7c2  nhi-build/source.b64.05
+          387335414ce86f0d3835264c76c124ce10ef91332126e0742cc59a8977a51c1e  nhi-build/source.b64.06
+          b0d9c2acfb4324a7eecaa9bf1b6a60092155556e0ccd6249adceafe2ba67059e  nhi-build/source.b64.07
+          EOF
+          sha256sum -c /tmp/shards.sha256
+          wc -c nhi-build/source.b64.*
+
       - name: Reconstruct and verify NHI Matrix source
         shell: bash
         run: |
           set -euo pipefail
-          cat nhi-build/source.b64.* > /tmp/nhi-source.b64
-          base64 --decode /tmp/nhi-source.b64 > /tmp/nhi-source.zip
-          echo '4ef025585f9f679cf07d9c6879efd4a5ceb155e249b8b914f025d6b843aaca63  /tmp/nhi-source.zip' | sha256sum -c -
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64, hashlib
+          parts = sorted(Path('nhi-build').glob('source.b64.*'))
+          text = ''.join(p.read_text(encoding='ascii') for p in parts)
+          assert len(text) == 90928, f'Unexpected Base64 length: {len(text)}'
+          raw = base64.b64decode(text, validate=True)
+          digest = hashlib.sha256(raw).hexdigest()
+          assert digest == '4ef025585f9f679cf07d9c6879efd4a5ceb155e249b8b914f025d6b843aaca63', digest
+          Path('/tmp/nhi-source.zip').write_bytes(raw)
+          print('Source ZIP SHA-256:', digest)
+          PY
           unzip -t /tmp/nhi-source.zip
           rm -rf /tmp/nhi-src
           mkdir -p /tmp/nhi-src
