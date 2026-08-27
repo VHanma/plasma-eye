@@ -1,0 +1,119 @@
+name: NHI Tech Forge v0.6.1 Compiler
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - rival3-nhi-matrix-build-v0.6
+    paths:
+      - '.github/workflows/nhi-tech-forge-v061.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reconstruct verified foundation
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat nhi-build/source.b64.* > /tmp/base.b64
+          base64 --decode /tmp/base.b64 > /tmp/base.zip
+          echo '4ef025585f9f679cf07d9c6879efd4a5ceb155e249b8b914f025d6b843aaca63  /tmp/base.zip' | sha256sum -c -
+          rm -rf /tmp/nhi-src && mkdir -p /tmp/nhi-src
+          unzip -q /tmp/base.zip -d /tmp/nhi-src
+
+      - name: Apply verified reverse-engineering overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat nhi-build/forge-overrides.b64.* > /tmp/overlay.b64
+          base64 --decode /tmp/overlay.b64 > /tmp/overlay.zip
+          echo 'fb63129453db2a29b44cc67af39cb599633b11d6ec6c03fcbe25a8b28e7893fe  /tmp/overlay.zip' | sha256sum -c -
+          rm -rf /tmp/overlay && mkdir -p /tmp/overlay
+          unzip -q /tmp/overlay.zip -d /tmp/overlay
+          cp -R /tmp/overlay/overrides/app/src/main/java/com/vhanma/nhimatrix/forge /tmp/nhi-src/NHI-Matrix-Lab/app/src/main/java/com/vhanma/nhimatrix/
+          cp /tmp/overlay/overrides/app/src/main/java/com/vhanma/nhimatrix/ui/ReverseEngineeringApp.kt /tmp/nhi-src/NHI-Matrix-Lab/app/src/main/java/com/vhanma/nhimatrix/ui/
+
+      - name: Apply verified v0.6.1 hotfix
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat nhi-build/forge-hotfix.b64.* > /tmp/hotfix.b64
+          echo "Hotfix transport bytes: $(wc -c < /tmp/hotfix.b64)"
+          base64 --decode /tmp/hotfix.b64 > /tmp/hotfix.zip
+          echo 'cd5246f8e8865b8abf4c8c455c16076409cab7dcea8de3ef23baffcab0fbb315  /tmp/hotfix.zip' | sha256sum -c -
+          rm -rf /tmp/hotfix && mkdir -p /tmp/hotfix
+          unzip -q /tmp/hotfix.zip -d /tmp/hotfix
+          cp /tmp/hotfix/hotfix/app/src/main/java/com/vhanma/nhimatrix/ui/ReverseEngineeringApp.kt /tmp/nhi-src/NHI-Matrix-Lab/app/src/main/java/com/vhanma/nhimatrix/ui/
+          grep -q 'ForceMotionForge' /tmp/nhi-src/NHI-Matrix-Lab/app/src/main/java/com/vhanma/nhimatrix/ui/ReverseEngineeringApp.kt
+
+      - name: Patch launcher and package
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          src=Path('/tmp/nhi-src/NHI-Matrix-Lab')
+          old=src/'app/src/main/java/com/vhanma/nhimatrix/ui/NhiMatrixApp.kt'
+          s=old.read_text().replace('@Composable\nprivate fun LightLab() {','@Composable\nprivate fun ColumnScope.LightLab() {').replace('@Composable\nprivate fun CloakLab() {','@Composable\nprivate fun ColumnScope.CloakLab() {')
+          old.write_text(s)
+          main=src/'app/src/main/java/com/vhanma/nhimatrix/MainActivity.kt'
+          m=main.read_text().replace('import com.vhanma.nhimatrix.ui.NhiMatrixApp','import com.vhanma.nhimatrix.ui.ReverseEngineeringApp').replace('setContent { NhiMatrixApp() }','setContent { ReverseEngineeringApp() }')
+          main.write_text(m)
+          manifest=src/'app/src/main/AndroidManifest.xml'
+          x=manifest.read_text()
+          if 'android.permission.VIBRATE' not in x:
+              x=x.replace('<uses-permission android:name="android.permission.CAMERA" />','<uses-permission android:name="android.permission.CAMERA" />\n    <uses-permission android:name="android.permission.VIBRATE" />')
+          x=x.replace('android:label="NHI Matrix Lab"','android:label="NHI Tech Forge"')
+          manifest.write_text(x)
+          g=src/'app/build.gradle.kts'; t=g.read_text()
+          t=re.sub(r'applicationId\s*=\s*"[^"]+"','applicationId = "com.vhanma.nhiforge.r3"',t)
+          t=re.sub(r'versionCode\s*=\s*\d+','versionCode = 8',t)
+          t=re.sub(r'versionName\s*=\s*"[^"]+"','versionName = "0.6.1-rival3-techforge"',t)
+          g.write_text(t)
+          PY
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - name: Install SDK
+        run: sdkmanager --channel=3 'platforms;android-37.0' 'build-tools;36.0.0' 'platform-tools'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+      - name: Compile APK
+        working-directory: /tmp/nhi-src/NHI-Matrix-Lab
+        run: gradle :app:assembleDebug --stacktrace --no-daemon
+      - name: Verify APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=/tmp/nhi-src/NHI-Matrix-Lab/app/build/outputs/apk/debug/app-debug.apk
+          "$ANDROID_SDK_ROOT/build-tools/36.0.0/aapt" dump badging "$APK" | tee /tmp/apk-badging.txt
+          grep -q "package: name='com.vhanma.nhiforge.r3'" /tmp/apk-badging.txt
+          grep -q "versionName='0.6.1-rival3-techforge'" /tmp/apk-badging.txt
+          "$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$APK" | tee /tmp/apk-signature.txt
+          unzip -t "$APK" >/dev/null
+          cp "$APK" /tmp/NHI-Tech-Forge-v0.6.1-rival3.apk
+          sha256sum /tmp/NHI-Tech-Forge-v0.6.1-rival3.apk | tee /tmp/NHI-Tech-Forge-v0.6.1-rival3.apk.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NHI-Tech-Forge-v0.6.1-rival3
+          path: |
+            /tmp/NHI-Tech-Forge-v0.6.1-rival3.apk
+            /tmp/NHI-Tech-Forge-v0.6.1-rival3.apk.sha256
+            /tmp/apk-badging.txt
+            /tmp/apk-signature.txt
+          if-no-files-found: error
+          retention-days: 14
