@@ -6,6 +6,7 @@ on:
       - standalone-sonify-forge
     paths:
       - '.sonifyforge-src/**'
+      - '.sonifyforge-v110/**'
       - '.github/workflows/sonifyforge-build.yml'
   workflow_dispatch:
 
@@ -17,7 +18,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Reconstruct and verify standalone source
+      - name: Reconstruct and verify base source
         run: |
           cat .sonifyforge-src/part-* > sonifyforge-src.zip.b64
           base64 -d sonifyforge-src.zip.b64 > sonifyforge-src.zip
@@ -29,6 +30,13 @@ jobs:
           rm -rf sonifyforge-build
           mkdir sonifyforge-build
           unzip -q sonifyforge-src.zip -d sonifyforge-build
+
+      - name: Apply photo-import upgrade
+        run: |
+          python3 .sonifyforge-v110/patch.py
+          cp .sonifyforge-v110/ImageFeatureExtractor.java sonifyforge-build/sonifyforge/app/src/main/java/com/vaanhanma/sonifyforge/ImageFeatureExtractor.java
+          grep -q 'versionName '\''1.1.0'\''' sonifyforge-build/sonifyforge/app/build.gradle
+          grep -q 'REQ_OPEN_IMAGE' sonifyforge-build/sonifyforge/app/src/main/java/com/vaanhanma/sonifyforge/MainActivity.java
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -56,12 +64,12 @@ jobs:
       - name: Stage APK
         run: |
           mkdir -p dist
-          cp sonifyforge-build/sonifyforge/app/build/outputs/apk/release/app-release.apk dist/SonifyForge-v1.0.0.apk
-          sha256sum dist/SonifyForge-v1.0.0.apk | tee dist/SonifyForge-v1.0.0.sha256
+          cp sonifyforge-build/sonifyforge/app/build/outputs/apk/release/app-release.apk dist/SonifyForge-v1.1.0.apk
+          sha256sum dist/SonifyForge-v1.1.0.apk | tee dist/SonifyForge-v1.1.0.sha256
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SonifyForge-v1.0.0
+          name: SonifyForge-v1.1.0
           path: dist/*
           if-no-files-found: error
