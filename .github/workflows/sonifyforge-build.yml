@@ -1,12 +1,11 @@
-name: Build Sonify Forge APK
+name: Build Sonify Forge X APK
 
 on:
   push:
     branches:
       - standalone-sonify-forge
     paths:
-      - '.sonifyforge-src/**'
-      - '.sonifyforge-v110/**'
+      - '.sonifyforge-v120-src/**'
       - '.github/workflows/sonifyforge-build.yml'
   workflow_dispatch:
 
@@ -18,25 +17,27 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Reconstruct and verify base source
+      - name: Reconstruct and verify Sonify Forge X source
         run: |
-          cat .sonifyforge-src/part-* > sonifyforge-src.zip.b64
-          base64 -d sonifyforge-src.zip.b64 > sonifyforge-src.zip
-          echo '58f4244982a502057e262cdb45cd94087fc2bfd99a9698ba4e42ffbce0ebb9e3  sonifyforge-src.zip' | sha256sum -c -
-          unzip -tq sonifyforge-src.zip
+          cat .sonifyforge-v120-src/part-* > sonifyforge-x-src.zip.b64
+          base64 -d sonifyforge-x-src.zip.b64 > sonifyforge-x-src.zip
+          echo '6e731e11c4580483d29682db797ac1d2d18de7f8056d6c39e22b343dafd41219  sonifyforge-x-src.zip' | sha256sum -c -
+          unzip -tq sonifyforge-x-src.zip
 
       - name: Unpack standalone source
         run: |
           rm -rf sonifyforge-build
           mkdir sonifyforge-build
-          unzip -q sonifyforge-src.zip -d sonifyforge-build
+          unzip -q sonifyforge-x-src.zip -d sonifyforge-build
 
-      - name: Apply photo-import upgrade
+      - name: Verify v1.2 upgrade
         run: |
-          python3 .sonifyforge-v110/patch.py
-          cp .sonifyforge-v110/ImageFeatureExtractor.java sonifyforge-build/sonifyforge/app/src/main/java/com/vaanhanma/sonifyforge/ImageFeatureExtractor.java
-          grep -q 'versionName '\''1.1.0'\''' sonifyforge-build/sonifyforge/app/build.gradle
-          grep -q 'REQ_OPEN_IMAGE' sonifyforge-build/sonifyforge/app/src/main/java/com/vaanhanma/sonifyforge/MainActivity.java
+          grep -q "applicationId 'com.vaanhanma.sonifyforgex'" sonifyforge-build/sonifyforge/app/build.gradle
+          grep -q "versionName '1.2.0'" sonifyforge-build/sonifyforge/app/build.gradle
+          grep -q 'Japanese Edo' sonifyforge-build/sonifyforge/app/src/main/java/com/vaanhanma/sonifyforge/PresetCatalog.java
+          grep -q 'UniversalFileImporter' sonifyforge-build/sonifyforge/app/src/main/java/com/vaanhanma/sonifyforge/MainActivity.java
+          grep -q 'IMAGE RECONSTRUCTION' sonifyforge-build/sonifyforge/app/src/main/java/com/vaanhanma/sonifyforge/GraphView.java
+          test -f sonifyforge-build/sonifyforge/app/sonifyforge-release.jks
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -64,12 +65,12 @@ jobs:
       - name: Stage APK
         run: |
           mkdir -p dist
-          cp sonifyforge-build/sonifyforge/app/build/outputs/apk/release/app-release.apk dist/SonifyForge-v1.1.0.apk
-          sha256sum dist/SonifyForge-v1.1.0.apk | tee dist/SonifyForge-v1.1.0.sha256
+          cp sonifyforge-build/sonifyforge/app/build/outputs/apk/release/app-release.apk dist/SonifyForge-X-v1.2.0.apk
+          sha256sum dist/SonifyForge-X-v1.2.0.apk | tee dist/SonifyForge-X-v1.2.0.sha256
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SonifyForge-v1.1.0
+          name: SonifyForge-X-v1.2.0
           path: dist/*
           if-no-files-found: error
