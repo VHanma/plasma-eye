@@ -29,28 +29,24 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Unpack OpenGL renderer
-        run: |
-          mkdir -p app/src/main/java/com/omega/projector
-          base64 -d packed/OmegaGLView.java.gz.b64 | gzip -d > app/src/main/java/com/omega/projector/OmegaGLView.java
       - name: Build installable APK
         run: gradle :app:assembleDebug --stacktrace
       - name: Copy APK
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/OmegaProjector.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/OmegaProjector-v2.apk
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: OmegaProjector-APK
-          path: omega-projector/dist/OmegaProjector.apk
+          name: OmegaProjector-v2-APK
+          path: omega-projector/dist/OmegaProjector-v2.apk
       - name: Publish APK onto branch
         working-directory: .
         run: |
           git config user.name "Omega Builder"
           git config user.email "actions@users.noreply.github.com"
-          git add omega-projector/dist/OmegaProjector.apk
+          git add omega-projector/dist/OmegaProjector-v2.apk
           if ! git diff --cached --quiet; then
-            git commit -m "Build OmegaProjector APK [skip omega]"
+            git commit -m "Build OmegaProjector v2 APK [skip omega]"
             git push
           fi
