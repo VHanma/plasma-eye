@@ -1,0 +1,14 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'com.vhanma.omegaechoframe'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'com.vhanma.omegaechoframe'
+        minSdk 26
+        targetSdk 36
+        versionCode 1
+        versionName '1.0-omega'
+    }
+}
