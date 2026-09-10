@@ -23,6 +23,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.SystemClock;
+import android.speech.tts.TextToSpeech;
 import android.view.Gravity;
 import android.view.Surface;
 import android.view.TextureView;
@@ -36,12 +37,12 @@ import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Locale;
 
-public final class MainActivity extends Activity implements SensorEventListener {
+public final class MainActivity extends Activity implements SensorEventListener, TextToSpeech.OnInitListener {
     private static final int REQ_CAMERA = 41;
 
     private TextureView texture;
     private RoiOverlayView roiOverlay;
-    private CornerMapView mapView;
+    private TextView readout;
     private TextView status;
     private final PenumbraProcessor processor = new PenumbraProcessor();
 
@@ -59,12 +60,19 @@ public final class MainActivity extends Activity implements SensorEventListener 
     private volatile boolean dualMode = false;
     private long lastStatusMs = 0L;
 
+    private TextToSpeech tts;
+    private boolean ttsReady = false;
+    private boolean voiceEnabled = true;
+    private String lastSpokenKey = "";
+    private long lastSpeakMs = 0L;
+
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
         getWindow().setStatusBarColor(Color.BLACK);
         getWindow().setNavigationBarColor(Color.BLACK);
         sensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
         gyro = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE);
+        tts = new TextToSpeech(this, this);
         buildUi();
 
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
@@ -85,12 +93,12 @@ public final class MainActivity extends Activity implements SensorEventListener 
         root.addView(title, new LinearLayout.LayoutParams(-1, dp(48)));
 
         TextView guide = new TextView(this);
-        guide.setText("Point at the floor or wall BESIDE a corner, not into the hidden area. Drag the cyan box onto that patch, then CALIBRATE while the hidden side is still.");
+        guide.setText("Point at the floor or wall BESIDE a corner. Drag the cyan box onto that patch. Calibrate while the hidden side is still. Then CornerSight reads the pattern for you.");
         guide.setTextColor(0xFF9BB0B8);
         guide.setTextSize(13f);
         guide.setGravity(Gravity.CENTER);
         guide.setPadding(14, 0, 14, 8);
-        root.addView(guide, new LinearLayout.LayoutParams(-1, dp(58)));
+        root.addView(guide, new LinearLayout.LayoutParams(-1, dp(64)));
 
         FrameLayout cameraFrame = new FrameLayout(this);
         cameraFrame.setBackgroundColor(Color.BLACK);
@@ -99,10 +107,16 @@ public final class MainActivity extends Activity implements SensorEventListener 
         cameraFrame.addView(texture, new FrameLayout.LayoutParams(-1, -1));
         roiOverlay = new RoiOverlayView(this);
         cameraFrame.addView(roiOverlay, new FrameLayout.LayoutParams(-1, -1));
-        root.addView(cameraFrame, new LinearLayout.LayoutParams(-1, 0, 0.72f));
+        root.addView(cameraFrame, new LinearLayout.LayoutParams(-1, 0, 0.74f));
 
-        mapView = new CornerMapView(this);
-        root.addView(mapView, new LinearLayout.LayoutParams(-1, 0, 1.20f));
+        readout = new TextView(this);
+        readout.setText("READY TO CALIBRATE");
+        readout.setTextColor(0xFF8DEEFF);
+        readout.setTextSize(30f);
+        readout.setGravity(Gravity.CENTER);
+        readout.setPadding(22, 18, 22, 18);
+        readout.setBackgroundColor(0xFF07141C);
+        root.addView(readout, new LinearLayout.LayoutParams(-1, 0, 1.12f));
 
         LinearLayout controls = new LinearLayout(this);
         controls.setOrientation(LinearLayout.HORIZONTAL);
@@ -112,8 +126,10 @@ public final class MainActivity extends Activity implements SensorEventListener 
         Button cal = makeButton("CALIBRATE");
         cal.setOnClickListener(v -> {
             processor.startCalibration();
-            mapView.clearHistory();
-            setStatus("Calibrating. Keep phone and hidden area still.", 0xFFFFCC55);
+            lastSpokenKey = "";
+            setReadout("LEARNING THE EMPTY CORNER\n\nHold the phone still.\nKeep the hidden side still.", 0xFFFFCC55);
+            speakNow("Calibrating. Hold the phone still and keep the hidden side still.");
+            setStatus("Learning the normal indirect-light pattern.", 0xFFFFCC55);
         });
         controls.addView(cal, new LinearLayout.LayoutParams(0, dp(52), 1f));
 
@@ -122,18 +138,30 @@ public final class MainActivity extends Activity implements SensorEventListener 
             dualMode = !dualMode;
             mode.setText(dualMode ? "DUAL EDGE" : "SINGLE EDGE");
             roiOverlay.setDual(dualMode);
-            mapView.setDualMode(dualMode);
             processor.startCalibration();
-            mapView.clearHistory();
-            setStatus(dualMode ? "Dual-edge relative 2D mode. Recalibrate with both edge patches in the box." : "Single-edge angle mode. Recalibrating.", 0xFF8DEEFF);
+            lastSpokenKey = "";
+            setReadout(dualMode
+                    ? "DUAL EDGE MODE\n\nI will combine both halves of the sampled light patch.\nRecalibrating now."
+                    : "SINGLE EDGE MODE\n\nI will report hidden motion by direction.\nRecalibrating now.",
+                    0xFF8DEEFF);
+            speakNow(dualMode ? "Dual edge mode. Recalibrating." : "Single edge mode. Recalibrating.");
         });
         controls.addView(mode, new LinearLayout.LayoutParams(0, dp(52), 1f));
+
+        Button voice = makeButton("VOICE ON");
+        voice.setOnClickListener(v -> {
+            voiceEnabled = !voiceEnabled;
+            voice.setText(voiceEnabled ? "VOICE ON" : "VOICE OFF");
+            if (voiceEnabled) speakNow("Voice announcements on.");
+            else if (ttsReady) tts.stop();
+        });
+        controls.addView(voice, new LinearLayout.LayoutParams(0, dp(52), 0.82f));
 
         TextView gainText = new TextView(this);
         gainText.setText("SENS");
         gainText.setTextColor(Color.WHITE);
         gainText.setGravity(Gravity.CENTER);
-        controls.addView(gainText, new LinearLayout.LayoutParams(dp(50), dp(52)));
+        controls.addView(gainText, new LinearLayout.LayoutParams(dp(48), dp(52)));
 
         SeekBar gain = new SeekBar(this);
         gain.setMax(100);
@@ -145,7 +173,7 @@ public final class MainActivity extends Activity implements SensorEventListener 
             @Override public void onStartTrackingTouch(SeekBar seekBar) {}
             @Override public void onStopTrackingTouch(SeekBar seekBar) {}
         });
-        controls.addView(gain, new LinearLayout.LayoutParams(0, dp(52), 0.75f));
+        controls.addView(gain, new LinearLayout.LayoutParams(0, dp(52), 0.72f));
         root.addView(controls, new LinearLayout.LayoutParams(-1, dp(62)));
 
         status = new TextView(this);
@@ -153,15 +181,26 @@ public final class MainActivity extends Activity implements SensorEventListener 
         status.setTextColor(0xFF8DEEFF);
         status.setTextSize(13f);
         status.setGravity(Gravity.CENTER);
-        root.addView(status, new LinearLayout.LayoutParams(-1, dp(38)));
+        root.addView(status, new LinearLayout.LayoutParams(-1, dp(40)));
 
         setContentView(root);
+    }
+
+    @Override public void onInit(int status) {
+        if (status == TextToSpeech.SUCCESS && tts != null) {
+            int result = tts.setLanguage(Locale.US);
+            ttsReady = result != TextToSpeech.LANG_MISSING_DATA && result != TextToSpeech.LANG_NOT_SUPPORTED;
+            if (ttsReady) {
+                tts.setSpeechRate(0.96f);
+                tts.setPitch(0.96f);
+            }
+        }
     }
 
     private Button makeButton(String text) {
         Button b = new Button(this);
         b.setText(text);
-        b.setTextSize(12f);
+        b.setTextSize(11f);
         b.setAllCaps(false);
         return b;
     }
@@ -170,7 +209,9 @@ public final class MainActivity extends Activity implements SensorEventListener 
         super.onResume();
         startCameraThread();
         if (gyro != null) sensorManager.registerListener(this, gyro, SensorManager.SENSOR_DELAY_GAME);
-        if (texture.isAvailable() && checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) openCamera();
+        if (texture != null && texture.isAvailable() && checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            openCamera();
+        }
     }
 
     @Override protected void onPause() {
@@ -180,12 +221,21 @@ public final class MainActivity extends Activity implements SensorEventListener 
         super.onPause();
     }
 
+    @Override protected void onDestroy() {
+        if (tts != null) {
+            tts.stop();
+            tts.shutdown();
+        }
+        super.onDestroy();
+    }
+
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == REQ_CAMERA && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
             if (texture.isAvailable()) openCamera();
         } else if (requestCode == REQ_CAMERA) {
             setStatus("Camera permission is required.", 0xFFFF6666);
+            setReadout("CAMERA PERMISSION NEEDED", 0xFFFF6666);
         }
     }
 
@@ -287,7 +337,7 @@ public final class MainActivity extends Activity implements SensorEventListener 
                     session = s;
                     try {
                         s.setRepeatingRequest(req.build(), null, cameraHandler);
-                        setStatus("Ready. Put cyan box on the corner light patch, then CALIBRATE.", 0xFF8DEEFF);
+                        setStatus("Ready. Place the cyan box, then calibrate.", 0xFF8DEEFF);
                     } catch (CameraAccessException ex) {
                         setStatus("Capture error: " + ex.getMessage(), 0xFFFF6666);
                     }
@@ -331,26 +381,84 @@ public final class MainActivity extends Activity implements SensorEventListener 
             boolean stable = now > unstableUntilNs;
             PenumbraProcessor.Result r = processor.process(
                     packed, width, height, width, sensorRoi, stable, dualMode, now);
-            mapView.push(r);
-
-            long ms = SystemClock.elapsedRealtime();
-            if (ms - lastStatusMs > 350) {
-                lastStatusMs = ms;
-                if (r.calibrating) {
-                    int pct = Math.min(100, r.calibrationFrame * 100 / PenumbraProcessor.CAL_FRAMES);
-                    setStatus("Learning empty corner… " + pct + "%", 0xFFFFCC55);
-                } else if (r.frozen) {
-                    setStatus("Hold phone still. Motion rejected.", 0xFFFF9955);
-                } else if (r.confidence > 0.45f) {
-                    String dir = Math.abs(r.angularSpeed) < 4f ? "slow/still" : r.angularSpeed > 0f ? "right" : "left";
-                    setStatus(String.format(Locale.US, "Hidden target %s • %.0f%% confidence", dir, r.confidence * 100f), 0xFFFF6688);
-                } else {
-                    setStatus("Watching hidden side through indirect light.", 0xFF8DEEFF);
-                }
-            }
+            interpretResult(r);
         } finally {
             image.close();
         }
+    }
+
+    private void interpretResult(PenumbraProcessor.Result r) {
+        long ms = SystemClock.elapsedRealtime();
+        if (r.calibrating) {
+            if (ms - lastStatusMs > 300) {
+                lastStatusMs = ms;
+                int pct = Math.min(100, r.calibrationFrame * 100 / PenumbraProcessor.CAL_FRAMES);
+                setReadout("LEARNING THE EMPTY CORNER\n\n" + pct + "%", 0xFFFFCC55);
+                setStatus("Keep the phone and hidden area still.", 0xFFFFCC55);
+            }
+            return;
+        }
+
+        if (r.frozen) {
+            if (ms - lastStatusMs > 350) {
+                lastStatusMs = ms;
+                setReadout("PHONE MOVED\n\nHold still.\nI am ignoring this moment.", 0xFFFF9955);
+                setStatus("Movement rejection is protecting the reading.", 0xFFFF9955);
+            }
+            return;
+        }
+
+        if (r.confidence < 0.18f) {
+            if (ms - lastStatusMs > 500) {
+                lastStatusMs = ms;
+                setReadout("I DON'T DETECT\nHIDDEN MOTION RIGHT NOW.", 0xFF8DEEFF);
+                setStatus("Watching the indirect-light pattern.", 0xFF8DEEFF);
+            }
+            lastSpokenKey = "clear";
+            return;
+        }
+
+        int targets = Math.max(1, Math.min(3, r.clusters));
+        String countWords = targets == 1 ? "one hidden target" : targets == 2 ? "two hidden targets" : "three or more hidden targets";
+        String direction;
+        if (Math.abs(r.angularSpeed) < 4f) direction = "moving very slowly or holding position";
+        else if (r.angularSpeed > 0f) direction = "moving to the right";
+        else direction = "moving to the left";
+
+        String side;
+        if (r.angleDeg < -28f) side = "toward the left side";
+        else if (r.angleDeg > 28f) side = "toward the right side";
+        else side = "near the center of the hidden sector";
+
+        String strength = r.confidence > 0.72f ? "strong" : r.confidence > 0.43f ? "moderate" : "weak";
+        String display = "I DETECT " + countWords.toUpperCase(Locale.US) + ".\n\n"
+                + direction.toUpperCase(Locale.US) + ".\n"
+                + side.toUpperCase(Locale.US) + ".\n\n"
+                + "SIGNAL: " + strength.toUpperCase(Locale.US) + "\n"
+                + "CONFIDENCE: " + Math.round(r.confidence * 100f) + "%";
+        setReadout(display, r.confidence > 0.55f ? 0xFFFF6688 : 0xFFFFCC55);
+        setStatus("CornerSight translated the light change into plain English.", 0xFFB8F6FF);
+
+        String spoken = "I detect " + countWords + ", " + direction + ", " + side + ". Signal " + strength + ". Confidence " + Math.round(r.confidence * 100f) + " percent.";
+        String key = targets + ":" + direction + ":" + side + ":" + strength;
+        if (r.confidence >= 0.38f) speakIfChanged(key, spoken, ms);
+    }
+
+    private void speakIfChanged(String key, String spoken, long nowMs) {
+        if (!voiceEnabled || !ttsReady) return;
+        boolean changed = !key.equals(lastSpokenKey);
+        boolean cooledDown = nowMs - lastSpeakMs > 3500L;
+        if (changed && cooledDown) {
+            tts.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, "corner_event");
+            lastSpokenKey = key;
+            lastSpeakMs = nowMs;
+        }
+    }
+
+    private void speakNow(String text) {
+        if (!voiceEnabled || !ttsReady) return;
+        tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "corner_manual");
+        lastSpeakMs = SystemClock.elapsedRealtime();
     }
 
     private RectF displayToSensor(RectF d) {
@@ -385,6 +493,13 @@ public final class MainActivity extends Activity implements SensorEventListener 
         session = null;
         reader = null;
         camera = null;
+    }
+
+    private void setReadout(String s, int color) {
+        runOnUiThread(() -> {
+            readout.setText(s);
+            readout.setTextColor(color);
+        });
     }
 
     private void setStatus(String s, int color) {
