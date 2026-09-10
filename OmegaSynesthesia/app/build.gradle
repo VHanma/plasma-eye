@@ -1,0 +1,13 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'com.omega.synesthesia'
+    compileSdk 36
+    defaultConfig {
+        applicationId 'com.omega.synesthesia'
+        minSdk 26
+        targetSdk 36
+        versionCode 1
+        versionName '0.1-omega'
+    }
+}
