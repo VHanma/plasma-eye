@@ -6,8 +6,8 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.ColorMatrix;
 import android.graphics.ColorMatrixColorFilter;
-import android.graphics.Matrix;
 import android.graphics.Paint;
+import android.graphics.Rect;
 import android.graphics.RectF;
 import android.view.View;
 
@@ -30,6 +30,7 @@ public final class HoloCanvasView extends View {
         guidePaint.setStyle(Paint.Style.STROKE);
         guidePaint.setStrokeWidth(2f);
         guidePaint.setColor(Color.argb(70, 90, 230, 255));
+        rebuildFilter();
     }
 
     public void setFrame(Bitmap bitmap) {
@@ -58,12 +59,10 @@ public final class HoloCanvasView extends View {
         paint.setColorFilter(new ColorMatrixColorFilter(cm));
     }
 
-    @Override
-    protected void onDraw(Canvas canvas) {
+    @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         canvas.drawColor(Color.BLACK);
         if (frame == null || frame.isRecycled() || getWidth() < 2 || getHeight() < 2) return;
-
         if (mode == MODE_GHOST) drawGhost(canvas);
         else drawFourWay(canvas);
     }
@@ -105,27 +104,27 @@ public final class HoloCanvasView extends View {
     private void drawInto(Canvas canvas, RectF dst, float rotation) {
         int save = canvas.save();
         canvas.rotate(rotation, dst.centerX(), dst.centerY());
-        if (mirror) {
-            canvas.scale(-1f, 1f, dst.centerX(), dst.centerY());
-        }
-        RectF src = cropFor(dst);
+        if (mirror) canvas.scale(-1f, 1f, dst.centerX(), dst.centerY());
+        Rect src = cropFor(dst);
         canvas.drawBitmap(frame, src, dst, paint);
         canvas.restoreToCount(save);
     }
 
-    private RectF cropFor(RectF dst) {
+    private Rect cropFor(RectF dst) {
         float srcW = frame.getWidth();
         float srcH = frame.getHeight();
         float srcAspect = srcW / Math.max(1f, srcH);
         float dstAspect = dst.width() / Math.max(1f, dst.height());
         if (srcAspect > dstAspect) {
             float useW = srcH * dstAspect;
-            float x = (srcW - useW)/2f;
-            return new RectF(x,0,x+useW,srcH);
+            int left = Math.max(0, Math.round((srcW - useW)/2f));
+            int right = Math.min(frame.getWidth(), Math.round(left + useW));
+            return new Rect(left, 0, right, frame.getHeight());
         } else {
             float useH = srcW / Math.max(0.01f, dstAspect);
-            float y = (srcH - useH)/2f;
-            return new RectF(0,y,srcW,y+useH);
+            int top = Math.max(0, Math.round((srcH - useH)/2f));
+            int bottom = Math.min(frame.getHeight(), Math.round(top + useH));
+            return new Rect(0, top, frame.getWidth(), bottom);
         }
     }
 }
