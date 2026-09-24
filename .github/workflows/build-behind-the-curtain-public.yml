@@ -34,20 +34,20 @@ jobs:
         shell: bash
         run: |
           mkdir -p apk-output
-          cp btc-public/app/build/outputs/apk/debug/app-debug.apk apk-output/BehindTheCurtain-v1.0.apk
-          sha256sum apk-output/BehindTheCurtain-v1.0.apk > apk-output/BehindTheCurtain-v1.0.apk.sha256
-          ls -lh apk-output/BehindTheCurtain-v1.0.apk
-          cat apk-output/BehindTheCurtain-v1.0.apk.sha256
+          cp btc-public/app/build/outputs/apk/debug/app-debug.apk apk-output/BehindTheCurtain-v1.1.apk
+          sha256sum apk-output/BehindTheCurtain-v1.1.apk > apk-output/BehindTheCurtain-v1.1.apk.sha256
+          ls -lh apk-output/BehindTheCurtain-v1.1.apk
+          cat apk-output/BehindTheCurtain-v1.1.apk.sha256
       - name: Publish public GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -e
-          TAG="behind-the-curtain-v1.0-public"
+          TAG="behind-the-curtain-v1.1-public"
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$TAG" apk-output/BehindTheCurtain-v1.0.apk apk-output/BehindTheCurtain-v1.0.apk.sha256 --repo "$GITHUB_REPOSITORY" --clobber
+            gh release upload "$TAG" apk-output/BehindTheCurtain-v1.1.apk apk-output/BehindTheCurtain-v1.1.apk.sha256 --repo "$GITHUB_REPOSITORY" --clobber
           else
-            gh release create "$TAG" apk-output/BehindTheCurtain-v1.0.apk apk-output/BehindTheCurtain-v1.0.apk.sha256 --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Behind the Curtain v1.0" --notes "Public direct-download mirror of the compiled Behind the Curtain Android APK."
+            gh release create "$TAG" apk-output/BehindTheCurtain-v1.1.apk apk-output/BehindTheCurtain-v1.1.apk.sha256 --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Behind the Curtain v1.1" --notes "Passive Screen Watch: invisible and touch-through until a detection crosses the gate, then only the detected regions are highlighted."
           fi
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url,assets
