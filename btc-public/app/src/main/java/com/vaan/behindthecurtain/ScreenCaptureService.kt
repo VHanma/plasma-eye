@@ -16,12 +16,16 @@ import android.view.*
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * User-started Screen Sentinel. Android MediaProjection consent is required for
- * every session. Visual frames and playback audio are processed only while the
- * visible foreground service is active. Android/source-app capture policy is
- * always respected.
+ * LIVE SCREEN WATCH
+ *
+ * This is intentionally screen-share shaped: the user approves Android's full-display
+ * MediaProjection prompt once, then this foreground service keeps receiving changing
+ * display frames while the user moves through other apps. The detector UI itself is
+ * absent until a finding crosses the gate. When a finding disappears, the overlay is
+ * removed again so normal phone use remains unobstructed.
  */
 class ScreenCaptureService : Service() {
     private var projection: MediaProjection? = null
@@ -33,12 +37,18 @@ class ScreenCaptureService : Service() {
     private val visualEx = Executors.newSingleThreadExecutor()
     private val audioEx = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
+    private var captureThread: HandlerThread? = null
+    private var captureHandler: Handler? = null
+    private val visualBusy = AtomicBoolean(false)
+
     private val tracker = Tracker()
     private val temporal = TemporalEngine()
 
     private var lastFrame = 0L
+    private var lastDeep = 0L
     private var lastOcr = 0L
     private var lastTpl = 0L
+    private var deep: List<Detection> = emptyList()
     private var ocr: List<Detection> = emptyList()
     private var tpl: List<Detection> = emptyList()
     private val persistence = mutableMapOf<Int, Int>()
@@ -56,7 +66,7 @@ class ScreenCaptureService : Service() {
         super.onCreate()
         audioSubs = SubtitleOverlay(this)
         createChannels()
-        startProjectionForeground("Screen Sentinel active")
+        startProjectionForeground("Live Screen Watch starting")
     }
 
     private fun startProjectionForeground(text: String) {
@@ -88,21 +98,31 @@ class ScreenCaptureService : Service() {
             override fun onStop() = stopSelf()
         }, main)
 
-        startDisplay()
+        startDisplayWatch()
         startPlaybackCapture()
+        updateOngoing("Watching full display • use your phone normally")
         return START_NOT_STICKY
     }
 
-    private fun startDisplay() {
+    /**
+     * Receives the live full-display stream. The ImageReader listener runs on its own
+     * thread, acquires only the newest frame, and refuses to build a processing queue.
+     * That means a fast-changing video remains a live source rather than turning into
+     * a delayed slideshow when one expensive OCR pass takes longer than usual.
+     */
+    private fun startDisplayWatch() {
         val bounds = getSystemService(WindowManager::class.java).currentWindowMetrics.bounds
-        val w = bounds.width().coerceAtLeast(1)
-        val h = bounds.height().coerceAtLeast(1)
+        val sourceW = bounds.width().coerceAtLeast(1)
+        val sourceH = bounds.height().coerceAtLeast(1)
 
-        reader = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2)
+        captureThread = HandlerThread("BTC-LiveScreen").apply { start() }
+        captureHandler = Handler(captureThread!!.looper)
+
+        reader = ImageReader.newInstance(sourceW, sourceH, PixelFormat.RGBA_8888, 3)
         vd = projection?.createVirtualDisplay(
-            "BTC-screen-sentinel",
-            w,
-            h,
+            "BTC-live-full-display",
+            sourceW,
+            sourceH,
             resources.displayMetrics.densityDpi,
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
             reader!!.surface,
@@ -111,87 +131,117 @@ class ScreenCaptureService : Service() {
         )
 
         reader!!.setOnImageAvailableListener({ r ->
+            val image = r.acquireLatestImage() ?: return@setOnImageAvailableListener
             val now = System.currentTimeMillis()
-            val im = r.acquireLatestImage() ?: return@setOnImageAvailableListener
-            if (now - lastFrame < 220L) {
-                im.close()
+
+            // Roughly 12.5 visual samples per second. This is fast enough to follow
+            // changing video and short visual events without flooding memory/CPU.
+            if (now - lastFrame < 80L || visualBusy.get()) {
+                image.close()
                 return@setOnImageAvailableListener
             }
             lastFrame = now
 
-            val plane = im.planes[0]
-            val ps = plane.pixelStride
-            val rs = plane.rowStride
-            val pad = rs - ps * w
-            val paddedW = w + pad / ps
-            val tmp = Bitmap.createBitmap(paddedW, h, Bitmap.Config.ARGB_8888)
-            tmp.copyPixelsFromBuffer(plane.buffer)
-            im.close()
-            val bmp = Bitmap.createBitmap(tmp, 0, 0, w, h)
-            tmp.recycle()
+            try {
+                val plane = image.planes[0]
+                val pixelStride = plane.pixelStride
+                val rowStride = plane.rowStride
+                val rowPadding = rowStride - pixelStride * sourceW
+                val paddedW = sourceW + rowPadding / pixelStride
 
-            visualEx.execute {
-                try {
-                    if (!AppState.master(this)) {
-                        persistence.clear()
-                        showOnlyWhenNeeded(w, h, emptyList(), emptyList())
-                        return@execute
-                    }
+                val padded = Bitmap.createBitmap(paddedW, sourceH, Bitmap.Config.ARGB_8888)
+                padded.copyPixelsFromBuffer(plane.buffer)
+                val frame = Bitmap.createBitmap(padded, 0, 0, sourceW, sourceH)
+                padded.recycle()
+                image.close()
 
-                    if (now - lastOcr > 950L) {
-                        lastOcr = now
-                        ocr = OcrEngine.scan(bmp, true)
-                    }
-                    if (now - lastTpl > 1450L) {
-                        lastTpl = now
-                        tpl = TemplateMatcher.scan(bmp, TemplateStore.load(this))
-                    }
-
-                    val tracked = tracker.update(
-                        (VisualEngine.scan(bmp) + temporal.scan(bmp) + ocr + tpl)
-                            .sortedByDescending { it.confidence }
-                            .take(30)
-                    )
-
-                    val alive = tracked.map { it.id }.toSet()
-                    persistence.keys.retainAll(alive)
-                    tracked.forEach { d -> persistence[d.id] = (persistence[d.id] ?: 0) + 1 }
-
-                    val findings = tracked.filter { d ->
-                        val immediate = d.label.startsWith("TEXT:") ||
-                            d.label.startsWith("TEXT ALT:") ||
-                            d.label.startsWith("TEMPLATE:") ||
-                            (d.label.contains("TRANSIENT") && d.confidence >= 0.84f)
-                        val stable = (persistence[d.id] ?: 0) >= 3 && d.confidence >= 0.80f
-                        immediate || stable
-                    }.sortedByDescending { it.confidence }.take(6)
-
-                    val subtitles = findings.mapNotNull {
-                        when {
-                            it.label.startsWith("TEXT ALT:") -> "ALT: " + it.label.removePrefix("TEXT ALT:").trim()
-                            it.label.startsWith("TEXT:") -> it.label.removePrefix("TEXT:").trim()
-                            else -> null
-                        }
-                    }.distinct().take(3)
-
-                    showOnlyWhenNeeded(w, h, findings, subtitles)
-                    if (findings.isNotEmpty()) EvidenceStore.visual(this, bmp, findings)
-                } finally {
-                    bmp.recycle()
+                if (!visualBusy.compareAndSet(false, true)) {
+                    frame.recycle()
+                    return@setOnImageAvailableListener
                 }
+
+                visualEx.execute {
+                    try {
+                        analyzeFrame(frame, sourceW, sourceH, now)
+                    } finally {
+                        frame.recycle()
+                        visualBusy.set(false)
+                    }
+                }
+            } catch (_: Throwable) {
+                try { image.close() } catch (_: Throwable) {}
+                visualBusy.set(false)
             }
-        }, main)
+        }, captureHandler)
+    }
+
+    private fun analyzeFrame(frame: Bitmap, sourceW: Int, sourceH: Int, now: Long) {
+        if (!AppState.master(this)) {
+            persistence.clear()
+            showOnlyWhenNeeded(sourceW, sourceH, emptyList(), emptyList())
+            return
+        }
+
+        // Temporal scan runs on every sampled live frame so short flashes are not tied
+        // to the slower OCR/deep-analysis cadence.
+        val temporalNow = temporal.scan(frame)
+
+        if (now - lastDeep >= 240L) {
+            lastDeep = now
+            deep = VisualEngine.scan(frame)
+        }
+        if (now - lastOcr >= 700L) {
+            lastOcr = now
+            ocr = OcrEngine.scan(frame, true)
+        }
+        if (now - lastTpl >= 1_000L) {
+            lastTpl = now
+            tpl = TemplateMatcher.scan(frame, TemplateStore.load(this))
+        }
+
+        val tracked = tracker.update(
+            (deep + temporalNow + ocr + tpl)
+                .sortedByDescending { it.confidence }
+                .take(36)
+        )
+
+        val alive = tracked.map { it.id }.toSet()
+        persistence.keys.retainAll(alive)
+        tracked.forEach { d -> persistence[d.id] = (persistence[d.id] ?: 0) + 1 }
+
+        val findings = tracked.filter { d ->
+            val immediate = d.label.startsWith("TEXT:") ||
+                d.label.startsWith("TEXT ALT:") ||
+                d.label.startsWith("TEMPLATE:") ||
+                (d.label.contains("TRANSIENT") && d.confidence >= 0.78f)
+
+            val stable = (persistence[d.id] ?: 0) >= 2 && d.confidence >= 0.76f
+            immediate || stable
+        }.sortedByDescending { it.confidence }.take(8)
+
+        val subtitles = findings.mapNotNull {
+            when {
+                it.label.startsWith("TEXT ALT:") -> "ALT: " + it.label.removePrefix("TEXT ALT:").trim()
+                it.label.startsWith("TEXT:") -> it.label.removePrefix("TEXT:").trim()
+                else -> null
+            }
+        }.distinct().take(3)
+
+        // Overlay does not exist at all while findings is empty.
+        showOnlyWhenNeeded(sourceW, sourceH, findings, subtitles)
+        if (findings.isNotEmpty()) EvidenceStore.visual(this, frame, findings)
     }
 
     /**
-     * Android 10+ playback capture. Only media explicitly capturable under the
-     * platform's playback-capture rules can reach this AudioRecord.
+     * Android playback capture is tied to the same user-approved MediaProjection.
+     * Apps/content that the platform marks as non-capturable simply do not provide
+     * playback samples to this AudioRecord; the visual watcher continues regardless.
      */
     private fun startPlaybackCapture() {
         if (Build.VERSION.SDK_INT < 29) return
         val mp = projection ?: return
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            updateOngoing("Screen active • playback audio permission off")
+            updateOngoing("Watching full display • playback audio permission off")
             return
         }
 
@@ -226,7 +276,7 @@ class ScreenCaptureService : Service() {
                 val stereo = ShortArray(16_384)
                 rec.startRecording()
                 audioRunning = true
-                updateOngoing("Screen + media audio active")
+                updateOngoing("Watching full display + capturable media audio")
 
                 while (audioRunning) {
                     val n = rec.read(stereo, 0, stereo.size, AudioRecord.READ_BLOCKING)
@@ -241,7 +291,7 @@ class ScreenCaptureService : Service() {
                     inspectMediaAudio(mono)
                 }
             } catch (_: Throwable) {
-                updateOngoing("Screen active • this source blocks playback capture")
+                updateOngoing("Watching full display • this source blocks playback audio")
             }
         }
     }
@@ -352,7 +402,7 @@ class ScreenCaptureService : Service() {
     private fun createChannels() {
         if (Build.VERSION.SDK_INT >= 26) {
             val nm = getSystemService(NotificationManager::class.java)
-            nm.createNotificationChannel(NotificationChannel("btc_screen", "Behind the Curtain screen watch", NotificationManager.IMPORTANCE_LOW))
+            nm.createNotificationChannel(NotificationChannel("btc_screen", "Behind the Curtain live screen watch", NotificationManager.IMPORTANCE_LOW))
             nm.createNotificationChannel(NotificationChannel("btc_screen_audio", "Behind the Curtain media audio alerts", NotificationManager.IMPORTANCE_HIGH))
         }
     }
@@ -363,7 +413,7 @@ class ScreenCaptureService : Service() {
 
     private fun ongoingNote(s: String) = NotificationCompat.Builder(this, "btc_screen")
         .setSmallIcon(android.R.drawable.ic_menu_view)
-        .setContentTitle("Behind the Curtain")
+        .setContentTitle("Behind the Curtain • Live Screen Watch")
         .setContentText(s)
         .setOngoing(true)
         .build()
@@ -373,13 +423,21 @@ class ScreenCaptureService : Service() {
         try { playback?.stop() } catch (_: Throwable) {}
         playback?.release()
         playback = null
+
+        reader?.setOnImageAvailableListener(null, null)
+        reader?.close()
+        vd?.release()
+        projection?.stop()
+
+        captureThread?.quitSafely()
+        captureThread = null
+        captureHandler = null
+
         main.post {
             removeOverlay()
             audioSubs.hide()
         }
-        reader?.close()
-        vd?.release()
-        projection?.stop()
+
         visualEx.shutdownNow()
         audioEx.shutdownNow()
         super.onDestroy()
