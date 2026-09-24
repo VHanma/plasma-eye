@@ -1,0 +1,53 @@
+name: Build Behind the Curtain Public APK
+on:
+  workflow_dispatch:
+  push:
+    branches: [ behind-the-curtain-download ]
+    paths:
+      - 'btc-public/**'
+      - '.github/workflows/build-behind-the-curtain-public.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+      - name: Build APK
+        working-directory: btc-public
+        run: gradle :app:assembleDebug --stacktrace
+      - name: Collect APK
+        shell: bash
+        run: |
+          mkdir -p apk-output
+          cp btc-public/app/build/outputs/apk/debug/app-debug.apk apk-output/BehindTheCurtain-v1.0.apk
+          sha256sum apk-output/BehindTheCurtain-v1.0.apk > apk-output/BehindTheCurtain-v1.0.apk.sha256
+          ls -lh apk-output/BehindTheCurtain-v1.0.apk
+          cat apk-output/BehindTheCurtain-v1.0.apk.sha256
+      - name: Publish public GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -e
+          TAG="behind-the-curtain-v1.0-public"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" apk-output/BehindTheCurtain-v1.0.apk apk-output/BehindTheCurtain-v1.0.apk.sha256 --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" apk-output/BehindTheCurtain-v1.0.apk apk-output/BehindTheCurtain-v1.0.apk.sha256 --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Behind the Curtain v1.0" --notes "Public direct-download mirror of the compiled Behind the Curtain Android APK."
+          fi
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url,assets

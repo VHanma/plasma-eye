@@ -1,0 +1,44 @@
+package com.vaan.behindthecurtain
+
+import android.Manifest
+import android.app.*
+import android.content.*
+import android.content.pm.PackageManager
+import android.graphics.*
+import android.net.Uri
+import android.os.*
+import android.provider.Settings
+import android.view.Gravity
+import android.widget.*
+import androidx.appcompat.app.AppCompatActivity
+import androidx.camera.core.*
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import java.util.concurrent.Executors
+
+class MainActivity:AppCompatActivity(){
+    override fun onCreate(b:Bundle?){super.onCreate(b);window.statusBarColor=Color.BLACK;ask();val r=Ui.root(this);r.addView(Ui.title(this,"BEHIND THE CURTAIN"));r.addView(Ui.body(this,"Live camera + approved screen + audio scanner with moving highlights, hidden-text subtitles, reversed/speed-shifted speech candidates, imported-media lab and automatic evidence vault."));r.addView(Ui.button(this,"◉ LIVE CAMERA SCAN"){startActivity(Intent(this,CameraScannerActivity::class.java))});r.addView(Ui.button(this,"▣ SCREEN SENTINEL"){startActivity(Intent(this,ScreenScannerActivity::class.java))});r.addView(Ui.button(this,"〽 AUDIO SENTINEL"){startActivity(Intent(this,AudioScannerActivity::class.java))});r.addView(Ui.button(this,"◫ FORENSIC LAB • IMAGE / VIDEO / AUDIO"){startActivity(Intent(this,ForensicLabActivity::class.java))});r.addView(Ui.button(this,"┃ FLOATING EDGE CONTROL"){edge()});r.addView(Ui.button(this,if(AppState.subtitles(this))"CC SUBTITLES: ON" else "CC SUBTITLES: OFF"){AppState.setSubtitles(this,!AppState.subtitles(this));recreate()});r.addView(Ui.button(this,"⌂ BEHIND THE CURTAIN VAULT"){startActivity(Intent(this,VaultActivity::class.java))});r.addView(Ui.body(this,"\nVisual passes: contrast-expanded OCR, alternate OCR reading, low-contrast structure, chroma masking, low bit-plane structure, transient/alpha-flash changes, symmetry/negative-space cues, symbol templates and temporal tracking.\n\nAudio passes: infrasound-band energy, ultrasonic-band energy when exposed by the hardware, quiet tonal/carrier candidates, plus BEST and alternate speech readings from forward, reversed and changed-speed passes."));setContentView(ScrollView(this).apply{addView(r)})}
+    private fun ask(){val q=mutableListOf<String>();if(ContextCompat.checkSelfPermission(this,Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED)q+=Manifest.permission.CAMERA;if(ContextCompat.checkSelfPermission(this,Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED)q+=Manifest.permission.RECORD_AUDIO;if(Build.VERSION.SDK_INT>=33&&ContextCompat.checkSelfPermission(this,Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)q+=Manifest.permission.POST_NOTIFICATIONS;if(q.isNotEmpty())ActivityCompat.requestPermissions(this,q.toTypedArray(),9)}
+    private fun edge(){if(!Settings.canDrawOverlays(this)){startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:$packageName")));Toast.makeText(this,"Allow display over other apps, then tap Edge Control again.",Toast.LENGTH_LONG).show();return};ContextCompat.startForegroundService(this,Intent(this,EdgeControlService::class.java))}
+}
+
+class CameraScannerActivity:AppCompatActivity(){
+    private val ex=Executors.newSingleThreadExecutor();private val tracker=Tracker();private val temporal=TemporalEngine();private lateinit var overlay:OverlayView;private lateinit var preview:PreviewView;private lateinit var status:TextView;private var lastOcr=0L;private var lastTpl=0L;private var ocr:List<Detection> = emptyList();private var tpl:List<Detection> = emptyList()
+    override fun onCreate(b:Bundle?){super.onCreate(b);preview=PreviewView(this).apply{scaleType=PreviewView.ScaleType.FILL_CENTER};overlay=OverlayView(this);status=TextView(this).apply{text="SCANNING • deep visual engine";setTextColor(Color.WHITE);setBackgroundColor(Color.argb(190,0,0,0));setPadding(16,12,16,12)};val f=FrameLayout(this);f.addView(preview,FrameLayout.LayoutParams(-1,-1));f.addView(overlay,FrameLayout.LayoutParams(-1,-1));f.addView(status,FrameLayout.LayoutParams(-2,-2,Gravity.TOP or Gravity.START));setContentView(f);if(ContextCompat.checkSelfPermission(this,Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED)start()else finish()}
+    private fun start(){val future=ProcessCameraProvider.getInstance(this);future.addListener({val pvd=future.get();val p=Preview.Builder().build().also{it.setSurfaceProvider(preview.surfaceProvider)};val a=ImageAnalysis.Builder().setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888).setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).build();a.setAnalyzer(ex){im->try{if(!AppState.master(this)){runOnUiThread{status.text="PAUSED • master switch off"};return@setAnalyzer};val bmp=rgba(im);val now=System.currentTimeMillis();if(now-lastOcr>1000){lastOcr=now;ocr=OcrEngine.scan(bmp,true)};if(now-lastTpl>1400){lastTpl=now;tpl=TemplateMatcher.scan(bmp,TemplateStore.load(this))};val ds=tracker.update((VisualEngine.scan(bmp)+temporal.scan(bmp)+ocr+tpl).sortedByDescending{it.confidence}.take(30));val subs=ds.mapNotNull{when{it.label.startsWith("TEXT ALT:")->"ALT: "+it.label.removePrefix("TEXT ALT:").trim();it.label.startsWith("TEXT:")->it.label.removePrefix("TEXT:").trim();else->null}}.distinct().take(4);runOnUiThread{overlay.sourceW=bmp.width;overlay.sourceH=bmp.height;overlay.ds=ds;overlay.subtitles=if(AppState.subtitles(this))subs else emptyList();overlay.invalidate();status.text="SCANNING • ${ds.size} candidates"};EvidenceStore.visual(this,bmp,ds)}catch(_:Throwable){}finally{im.close()}};pvd.unbindAll();pvd.bindToLifecycle(this,CameraSelector.DEFAULT_BACK_CAMERA,p,a)},ContextCompat.getMainExecutor(this))}
+    private fun rgba(im:ImageProxy):Bitmap{val pl=im.planes[0];val buf=pl.buffer;val ps=pl.pixelStride;val rs=pl.rowStride;val pad=rs-ps*im.width;val pw=im.width+pad/ps;val b=Bitmap.createBitmap(pw,im.height,Bitmap.Config.ARGB_8888);b.copyPixelsFromBuffer(buf);val c=Bitmap.createBitmap(b,0,0,im.width,im.height);if(im.imageInfo.rotationDegrees==0)return c;val m=Matrix().apply{postRotate(im.imageInfo.rotationDegrees.toFloat())};return Bitmap.createBitmap(c,0,0,c.width,c.height,m,true)}
+    override fun onDestroy(){ex.shutdownNow();super.onDestroy()}
+}
+
+class ScreenScannerActivity:AppCompatActivity(){
+    private val cap=registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()){r->if(r.resultCode==Activity.RESULT_OK&&r.data!=null){ContextCompat.startForegroundService(this,Intent(this,ScreenCaptureService::class.java).putExtra("code",r.resultCode).putExtra("data",r.data));Toast.makeText(this,"Screen Sentinel active.",Toast.LENGTH_LONG).show();finish()}}
+    override fun onCreate(b:Bundle?){super.onCreate(b);val r=Ui.root(this);r.addView(Ui.title(this,"SCREEN SENTINEL"));r.addView(Ui.body(this,"Scans the screen you approve, highlights candidate structure/text over other apps, follows recurring regions and auto-saves evidence."));r.addView(Ui.button(this,"START SCREEN SCAN"){go()});r.addView(Ui.button(this,"STOP SCREEN SCAN"){stopService(Intent(this,ScreenCaptureService::class.java));finish()});setContentView(r)}
+    private fun go(){if(!Settings.canDrawOverlays(this)){startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:$packageName")));Toast.makeText(this,"Allow display over other apps, then tap START again.",Toast.LENGTH_LONG).show();return};cap.launch(getSystemService(android.media.projection.MediaProjectionManager::class.java).createScreenCaptureIntent())}
+}
+
+class AudioScannerActivity:AppCompatActivity(){
+    private lateinit var st:TextView
+    override fun onCreate(b:Bundle?){super.onCreate(b);val r=Ui.root(this);r.addView(Ui.title(this,"AUDIO SENTINEL"));r.addView(Ui.body(this,"Listens to raw microphone audio when available. Detects sub-20Hz energy, 20kHz+ energy when the microphone/ADC exposes it, low-level tonal carriers, then tests speech candidates forward, reversed and at changed speeds."));st=Ui.body(this,"AI speech model: checking…");r.addView(st);r.addView(Ui.button(this,"START AUDIO SCAN"){if(ContextCompat.checkSelfPermission(this,Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)ContextCompat.startForegroundService(this,Intent(this,AudioScanService::class.java))});r.addView(Ui.button(this,"STOP AUDIO SCAN"){stopService(Intent(this,AudioScanService::class.java))});setContentView(r);VoskModelManager.ensure(this){s->runOnUiThread{st.text="AI speech model: $s"}}}
+}

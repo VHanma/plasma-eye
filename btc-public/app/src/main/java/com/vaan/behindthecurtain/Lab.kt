@@ -1,0 +1,32 @@
+package com.vaan.behindthecurtain
+
+import android.content.*
+import android.graphics.*
+import android.media.MediaMetadataRetriever
+import android.net.Uri
+import android.os.*
+import android.provider.MediaStore
+import android.widget.*
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
+import java.util.concurrent.Executors
+import kotlin.math.min
+
+class ForensicLabActivity:AppCompatActivity(){
+    private val ex=Executors.newSingleThreadExecutor();private lateinit var st:TextView;private lateinit var image:ImageView
+    private val imagePick=registerForActivityResult(ActivityResultContracts.OpenDocument()){u->if(u!=null)scanImage(u)}
+    private val videoPick=registerForActivityResult(ActivityResultContracts.OpenDocument()){u->if(u!=null)scanVideo(u)}
+    private val audioPick=registerForActivityResult(ActivityResultContracts.OpenDocument()){u->if(u!=null)scanAudio(u)}
+    private val templatePick=registerForActivityResult(ActivityResultContracts.OpenDocument()){u->if(u!=null)contentResolver.openInputStream(u)?.use{ins->BitmapFactory.decodeStream(ins)?.let{b->val n=TemplateStore.add(this,b);st.text="Saved symbol template: $n"}}}
+    override fun onCreate(b:Bundle?){super.onCreate(b);val r=Ui.root(this);r.addView(Ui.title(this,"FORENSIC LAB"));r.addView(Ui.body(this,"Import images, videos or audio. The same detectors run offline and save evidence into BehindTheCurtain. Add your own reference shape if you want the live scanner to hunt for a recurring visual motif."));r.addView(Ui.button(this,"SCAN IMAGE"){imagePick.launch(arrayOf("image/*"))});r.addView(Ui.button(this,"SCAN VIDEO"){videoPick.launch(arrayOf("video/*"))});r.addView(Ui.button(this,"SCAN AUDIO"){audioPick.launch(arrayOf("audio/*"))});r.addView(Ui.button(this,"ADD HIDDEN-SHAPE TEMPLATE"){templatePick.launch(arrayOf("image/*"))});image=ImageView(this).apply{adjustViewBounds=true};r.addView(image,LinearLayout.LayoutParams(-1,Ui.dp(this,260)));st=Ui.body(this,"Ready.");r.addView(ScrollView(this).apply{addView(st)},LinearLayout.LayoutParams(-1,0,1f));setContentView(r)}
+    private fun scanImage(u:Uri){st.text="Scanning image…";ex.execute{val b=contentResolver.openInputStream(u)?.use{BitmapFactory.decodeStream(it)}?:return@execute;val ds=(VisualEngine.scan(b)+OcrEngine.scan(b,true)+TemplateMatcher.scan(b,TemplateStore.load(this))).sortedByDescending{it.confidence}.take(35);EvidenceStore.visual(this,b,ds);runOnUiThread{image.setImageBitmap(mark(b,ds));st.text=render(ds)}}}
+    private fun scanVideo(u:Uri){st.text="Scanning video…";ex.execute{val r=MediaMetadataRetriever();try{r.setDataSource(this,u);val dur=r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()?:0L;val temporal=TemporalEngine();val templates=TemplateStore.load(this);var t=0L;var frames=0;var hits=0;val notes=StringBuilder();while(t<=dur&&frames<2400){val b=r.getFrameAtTime(t*1000,MediaMetadataRetriever.OPTION_CLOSEST);if(b!=null){frames++;val ocr=if(frames%4==1)OcrEngine.scan(b,true)else emptyList();val ds=(VisualEngine.scan(b)+temporal.scan(b)+ocr+TemplateMatcher.scan(b,templates)).sortedByDescending{it.confidence}.take(28);if(ds.any{it.confidence>=.70f}){hits++;EvidenceStore.visual(this,b,ds);if(hits<=25)notes.append("${"%.2f".format(t/1000.0)}s: ${ds.take(5).joinToString{it.label}}\n")}};if(frames%12==0)runOnUiThread{st.text="Video scan: ${t/1000}s / ${dur/1000}s • $hits evidence frames"};t+=250};runOnUiThread{st.text="Video scan complete.\nFrames: $frames\nEvidence frames: $hits\n\n$notes"}}finally{r.release()}}}
+    private fun scanAudio(u:Uri){st.text="Decoding audio…";ex.execute{val d=try{AudioFileDecoder.decode(this,u)}catch(_:Throwable){null};if(d==null){runOnUiThread{st.text="Could not decode this audio file."};return@execute};val fs=mutableListOf<AudioFinding>();var p=0;while(p+2048<d.pcm.size){val e=min(d.pcm.size,p+8192);AudioInspector.scan(d.pcm.copyOfRange(p,e),d.rate)?.let{fs+=it};p+=8192};val sample=if(d.pcm.size>d.rate*30)d.pcm.copyOfRange(0,d.rate*30)else d.pcm;SpeechDecoder.decode(this,sample,d.rate){words->fs.firstOrNull()?.let{EvidenceStore.audio(this,sample,d.rate,it,words)};runOnUiThread{st.text=buildString{append("Audio scan complete.\nRate: ${d.rate} Hz\nSignal findings: ${fs.size}\n");fs.take(18).forEach{append("• ${it.label} @ ${"%.1f".format(it.peakHz)} Hz\n")};append("\nSUBTITLE / WORD CANDIDATES\n");if(words.isEmpty())append("No stable speech candidate.\n")else words.forEach{append("• $it\n")}}}}}}
+    private fun mark(b:Bitmap,ds:List<Detection>):Bitmap{val o=b.copy(Bitmap.Config.ARGB_8888,true);val c=Canvas(o);val p=Paint(Paint.ANTI_ALIAS_FLAG).apply{style=Paint.Style.STROKE;strokeWidth=maxOf(3f,b.width/300f);color=Color.CYAN};ds.forEach{c.drawRect(it.rect,p)};return o}
+    private fun render(ds:List<Detection>)=buildString{append("Found ${ds.size} candidates.\n\n");ds.take(35).forEachIndexed{i,d->append("${i+1}. ${d.label} • ${(d.confidence*100).toInt()}%\n")}}
+    override fun onDestroy(){ex.shutdownNow();super.onDestroy()}
+}
+
+class VaultActivity:AppCompatActivity(){
+    override fun onCreate(b:Bundle?){super.onCreate(b);val r=Ui.root(this);r.addView(Ui.title(this,"BEHIND THE CURTAIN"));r.addView(Ui.body(this,"Auto-saved evidence. Tap a file to open it. Evidence is stored under Download/BehindTheCurtain/<date>/."));val list=ListView(this);r.addView(list,LinearLayout.LayoutParams(-1,0,1f));setContentView(r);val names=mutableListOf<String>();val uris=mutableListOf<Uri>();if(Build.VERSION.SDK_INT>=29){val cols=arrayOf(MediaStore.MediaColumns._ID,MediaStore.MediaColumns.DISPLAY_NAME);contentResolver.query(MediaStore.Downloads.EXTERNAL_CONTENT_URI,cols,"${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?",arrayOf("Download/BehindTheCurtain/%"),"${MediaStore.MediaColumns.DATE_ADDED} DESC")?.use{c->val ii=c.getColumnIndexOrThrow(MediaStore.MediaColumns._ID);val ni=c.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME);while(c.moveToNext()){names+=c.getString(ni);uris+=ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI,c.getLong(ii))}}};list.adapter=ArrayAdapter(this,android.R.layout.simple_list_item_1,names);list.setOnItemClickListener{_,_,p,_->val u=uris[p];val m=contentResolver.getType(u)?:"*/*";try{startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(u,m).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))}catch(_:Throwable){Toast.makeText(this,"Saved: ${names[p]}",Toast.LENGTH_SHORT).show()}}}
+}
