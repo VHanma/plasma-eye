@@ -8,7 +8,7 @@ on:
     branches: [ master, main ]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -23,17 +23,49 @@ jobs:
           java-version: '17'
           distribution: temurin
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Ensure Android 34 platform is present
+        shell: bash
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          if command -v sdkmanager >/dev/null 2>&1; then
+            yes | sdkmanager --licenses >/dev/null 2>&1 || true
+            sdkmanager "platforms;android-34" "build-tools;34.0.0" || true
+          fi
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
       - name: Build Release APK
-        run: ./gradlew assembleRelease
+        run: ./gradlew assembleRelease --stacktrace
 
-      - name: Upload APK
+      - name: Prepare public APK
+        shell: bash
+        run: |
+          APK="$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' | head -n 1)"
+          test -n "$APK"
+          cp "$APK" BehindTheCurtain-v1.1.apk
+          sha256sum BehindTheCurtain-v1.1.apk > BehindTheCurtain-v1.1.apk.sha256
+
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: plasma-eye-apk
-          path: app/build/outputs/apk/release/app-release*.apk
+          name: behind-the-curtain-v1.1
+          path: |
+            BehindTheCurtain-v1.1.apk
+            BehindTheCurtain-v1.1.apk.sha256
+
+      - name: Publish v1.1 public release
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: behind-the-curtain-v1.1-public
+        shell: bash
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 || \
+            gh release create "$TAG" \
+              --title "Behind the Curtain v1.1" \
+              --notes "Live user-authorized screen scanning with on-screen visual candidate highlighting and playback-audio forensic alerts, plus the existing camera laboratory."
+          gh release upload "$TAG" \
+            BehindTheCurtain-v1.1.apk \
+            BehindTheCurtain-v1.1.apk.sha256 \
+            --clobber
