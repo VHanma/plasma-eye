@@ -5,14 +5,17 @@ plugins {
 
 android {
     namespace = "com.vaan.behindthecurtain"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.vaan.behindthecurtain"
         minSdk = 26
-        targetSdk = 35
-        versionCode = 12
-        versionName = "1.1.1"
+        targetSdk = 36
+        versionCode = 13
+        versionName = "1.2.0"
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
     }
 
     signingConfigs {
@@ -25,8 +28,11 @@ android {
     }
 
     buildTypes {
-        debug { signingConfig = signingConfigs.getByName("debug") }
+        debug {
+            signingConfig = signingConfigs.getByName("debug")
+        }
         release {
+            isDebuggable = false
             isMinifyEnabled = false
             signingConfig = signingConfigs.getByName("debug")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -40,19 +46,30 @@ android {
     kotlinOptions { jvmTarget = "17" }
 
     packaging {
-        jniLibs { useLegacyPackaging = true }
+        jniLibs {
+            useLegacyPackaging = false
+        }
     }
 }
 
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.appcompat:appcompat:1.7.0")
+
     val camerax = "1.4.1"
     implementation("androidx.camera:camera-core:$camerax")
     implementation("androidx.camera:camera-camera2:$camerax")
     implementation("androidx.camera:camera-lifecycle:$camerax")
     implementation("androidx.camera:camera-view:$camerax")
-    implementation("com.google.mlkit:text-recognition:16.0.1")
-    implementation("com.alphacephei:vosk-android:0.3.47")
+
+    // Use the Play-services OCR model rather than bundling the older native OCR pipeline in the APK.
+    implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.1")
+
+    // Current Vosk/JNA builds include the Android 16 KB page-size fixes.
+    implementation("com.alphacephei:vosk-android:0.3.75") {
+        exclude(group = "net.java.dev.jna", module = "jna")
+    }
+    implementation("net.java.dev.jna:jna:5.18.1@aar")
+
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }
