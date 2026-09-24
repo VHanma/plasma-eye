@@ -31,7 +31,7 @@
         <service android:name=".EdgeControlService" android:exported="false" android:foregroundServiceType="specialUse">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="User-operated floating scanner switch"/>
         </service>
-        <service android:name=".ScreenCaptureService" android:exported="false" android:foregroundServiceType="mediaProjection"/>
+        <service android:name=".ScreenCaptureService" android:exported="false" android:foregroundServiceType="mediaProjection|microphone"/>
         <service android:name=".AudioScanService" android:exported="false" android:foregroundServiceType="microphone"/>
     </application>
 </manifest>
