@@ -38,6 +38,13 @@ jobs:
           sha256sum apk-output/BehindTheCurtain-v1.1.apk > apk-output/BehindTheCurtain-v1.1.apk.sha256
           ls -lh apk-output/BehindTheCurtain-v1.1.apk
           cat apk-output/BehindTheCurtain-v1.1.apk.sha256
+      - name: Attach APK to workflow
+        uses: actions/upload-artifact@v4
+        with:
+          name: BehindTheCurtain-v1.1-apk
+          path: apk-output/BehindTheCurtain-v1.1.apk
+          if-no-files-found: error
+          retention-days: 30
       - name: Publish public GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -50,4 +57,3 @@ jobs:
           else
             gh release create "$TAG" apk-output/BehindTheCurtain-v1.1.apk apk-output/BehindTheCurtain-v1.1.apk.sha256 --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Behind the Curtain v1.1" --notes "Passive Screen Watch: invisible and touch-through until a detection crosses the gate, then only the detected regions are highlighted."
           fi
-          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url,assets
