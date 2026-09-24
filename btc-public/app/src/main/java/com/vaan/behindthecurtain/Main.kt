@@ -19,9 +19,41 @@ import androidx.core.content.ContextCompat
 import java.util.concurrent.Executors
 
 class MainActivity:AppCompatActivity(){
-    override fun onCreate(b:Bundle?){super.onCreate(b);window.statusBarColor=Color.BLACK;ask();val r=Ui.root(this);r.addView(Ui.title(this,"BEHIND THE CURTAIN"));r.addView(Ui.body(this,"Live camera + approved screen and capturable media-audio scanner with moving highlights, hidden-text subtitles, periodic forward/reversed/speed-shifted speech sweeps, imported-media lab and automatic evidence vault."));r.addView(Ui.button(this,if(AppState.master(this))"◉ MASTER SCANNER: ON" else "○ MASTER SCANNER: OFF"){AppState.setMaster(this,!AppState.master(this));recreate()});r.addView(Ui.button(this,"◉ LIVE CAMERA SCAN"){startActivity(Intent(this,CameraScannerActivity::class.java))});r.addView(Ui.button(this,"▣ SCREEN SENTINEL"){startActivity(Intent(this,ScreenScannerActivity::class.java))});r.addView(Ui.button(this,"〽 AUDIO SENTINEL"){startActivity(Intent(this,AudioScannerActivity::class.java))});r.addView(Ui.button(this,"◫ FORENSIC LAB • IMAGE / VIDEO / AUDIO"){startActivity(Intent(this,ForensicLabActivity::class.java))});r.addView(Ui.button(this,"┃ FLOATING EDGE CONTROL"){edge()});r.addView(Ui.button(this,if(AppState.subtitles(this))"CC SUBTITLES: ON" else "CC SUBTITLES: OFF"){AppState.setSubtitles(this,!AppState.subtitles(this));recreate()});r.addView(Ui.button(this,"⌂ BEHIND THE CURTAIN VAULT"){startActivity(Intent(this,VaultActivity::class.java))});r.addView(Ui.body(this,"\nVisual passes: contrast-expanded OCR, alternate OCR reading, low-contrast structure, chroma masking, low bit-plane structure, transient/alpha-flash changes, symmetry/negative-space cues, symbol templates and temporal tracking.\n\nAudio passes: infrasound-band energy, ultrasonic-band energy when exposed by the hardware, quiet tonal/carrier candidates, plus independent periodic BEST and alternate speech readings from forward, reversed and changed-speed passes."));setContentView(ScrollView(this).apply{addView(r)})}
-    private fun ask(){val q=mutableListOf<String>();if(ContextCompat.checkSelfPermission(this,Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED)q+=Manifest.permission.CAMERA;if(ContextCompat.checkSelfPermission(this,Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED)q+=Manifest.permission.RECORD_AUDIO;if(Build.VERSION.SDK_INT>=33&&ContextCompat.checkSelfPermission(this,Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)q+=Manifest.permission.POST_NOTIFICATIONS;if(q.isNotEmpty())ActivityCompat.requestPermissions(this,q.toTypedArray(),9)}
-    private fun edge(){if(!Settings.canDrawOverlays(this)){startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:$packageName")));Toast.makeText(this,"Allow display over other apps, then tap Edge Control again.",Toast.LENGTH_LONG).show();return};ContextCompat.startForegroundService(this,Intent(this,EdgeControlService::class.java))}
+    override fun onCreate(b:Bundle?){
+        super.onCreate(b)
+        window.statusBarColor=Color.BLACK
+        ask()
+        val r=Ui.root(this)
+        r.addView(Ui.title(this,"BEHIND THE CURTAIN"))
+        r.addView(Ui.body(this,"The main mode is LIVE SCREEN WATCH: approve one full-display screen-share session, then keep using your phone normally. Behind the Curtain watches the changing display stream and capturable media audio in the background. It stays visually absent until a candidate crosses the gate, then points only at that region and removes the marker when it disappears."))
+        r.addView(Ui.button(this,if(AppState.master(this))"◉ MASTER SCANNER: ON" else "○ MASTER SCANNER: OFF"){AppState.setMaster(this,!AppState.master(this));recreate()})
+        r.addView(Ui.button(this,"▣ LIVE SCREEN WATCH • MAIN MODE"){startActivity(Intent(this,ScreenScannerActivity::class.java))})
+        r.addView(Ui.button(this,"◉ LIVE CAMERA SCAN"){startActivity(Intent(this,CameraScannerActivity::class.java))})
+        r.addView(Ui.button(this,"〽 AUDIO SENTINEL"){startActivity(Intent(this,AudioScannerActivity::class.java))})
+        r.addView(Ui.button(this,"◫ FORENSIC LAB • IMAGE / VIDEO / AUDIO"){startActivity(Intent(this,ForensicLabActivity::class.java))})
+        r.addView(Ui.button(this,"┃ FLOATING EDGE CONTROL"){edge()})
+        r.addView(Ui.button(this,if(AppState.subtitles(this))"CC SUBTITLES: ON" else "CC SUBTITLES: OFF"){AppState.setSubtitles(this,!AppState.subtitles(this));recreate()})
+        r.addView(Ui.button(this,"⌂ BEHIND THE CURTAIN VAULT"){startActivity(Intent(this,VaultActivity::class.java))})
+        r.addView(Ui.body(this,"\nLIVE SCREEN WATCH analyzes the approved full display while you scroll apps, browse, watch video, play media, or switch between apps. Visual passes include multi-pass OCR, low-contrast structure, chroma masking, low bit-plane structure, transient/flash changes, symmetry/negative-space cues, symbol templates and temporal tracking.\n\nPlayback-audio analysis runs from the same approved screen-share session when Android exposes that app's audio to capture."))
+        setContentView(ScrollView(this).apply{addView(r)})
+    }
+
+    private fun ask(){
+        val q=mutableListOf<String>()
+        if(ContextCompat.checkSelfPermission(this,Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED)q+=Manifest.permission.CAMERA
+        if(ContextCompat.checkSelfPermission(this,Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED)q+=Manifest.permission.RECORD_AUDIO
+        if(Build.VERSION.SDK_INT>=33&&ContextCompat.checkSelfPermission(this,Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)q+=Manifest.permission.POST_NOTIFICATIONS
+        if(q.isNotEmpty())ActivityCompat.requestPermissions(this,q.toTypedArray(),9)
+    }
+
+    private fun edge(){
+        if(!Settings.canDrawOverlays(this)){
+            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:$packageName")))
+            Toast.makeText(this,"Allow display over other apps, then tap Edge Control again.",Toast.LENGTH_LONG).show()
+            return
+        }
+        ContextCompat.startForegroundService(this,Intent(this,EdgeControlService::class.java))
+    }
 }
 
 class CameraScannerActivity:AppCompatActivity(){
@@ -33,9 +65,33 @@ class CameraScannerActivity:AppCompatActivity(){
 }
 
 class ScreenScannerActivity:AppCompatActivity(){
-    private val cap=registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()){r->if(r.resultCode==Activity.RESULT_OK&&r.data!=null){ContextCompat.startForegroundService(this,Intent(this,ScreenCaptureService::class.java).putExtra("code",r.resultCode).putExtra("data",r.data));Toast.makeText(this,"Screen + media scan active.",Toast.LENGTH_LONG).show();finish()}}
-    override fun onCreate(b:Bundle?){super.onCreate(b);val r=Ui.root(this);r.addView(Ui.title(this,"SCREEN SENTINEL"));r.addView(Ui.body(this,"Scans the screen you approve while you watch or scroll other apps. It highlights candidate structure/text, follows recurring regions, analyzes capturable playback audio through the same approved session, runs forward/reversed/speed-shifted speech sweeps, and auto-saves gated findings to the vault."));r.addView(Ui.button(this,"START SCREEN + MEDIA SCAN"){go()});r.addView(Ui.button(this,"STOP SCREEN SCAN"){stopService(Intent(this,ScreenCaptureService::class.java));finish()});setContentView(r)}
-    private fun go(){if(!Settings.canDrawOverlays(this)){startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:$packageName")));Toast.makeText(this,"Allow display over other apps, then tap START again.",Toast.LENGTH_LONG).show();return};cap.launch(getSystemService(android.media.projection.MediaProjectionManager::class.java).createScreenCaptureIntent())}
+    private val cap=registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()){r->
+        if(r.resultCode==Activity.RESULT_OK&&r.data!=null){
+            ContextCompat.startForegroundService(this,Intent(this,ScreenCaptureService::class.java).putExtra("code",r.resultCode).putExtra("data",r.data))
+            Toast.makeText(this,"Live Screen Watch active. Use your phone normally.",Toast.LENGTH_LONG).show()
+            moveTaskToBack(true)
+            finish()
+        }
+    }
+
+    override fun onCreate(b:Bundle?){
+        super.onCreate(b)
+        val r=Ui.root(this)
+        r.addView(Ui.title(this,"LIVE SCREEN WATCH"))
+        r.addView(Ui.body(this,"This is the screen-share style mode. Tap START, approve the Android full-display capture prompt, and the app moves itself out of the way. The service keeps receiving the live display frames while you use other apps, including changing video frames where Android permits screen capture. Nothing is drawn over the screen until a finding passes the detection gate."))
+        r.addView(Ui.button(this,"START FULL-DISPLAY WATCH"){go()})
+        r.addView(Ui.button(this,"STOP LIVE SCREEN WATCH"){stopService(Intent(this,ScreenCaptureService::class.java));finish()})
+        setContentView(r)
+    }
+
+    private fun go(){
+        if(!Settings.canDrawOverlays(this)){
+            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:$packageName")))
+            Toast.makeText(this,"Allow display over other apps so findings can be pointed out, then tap START again.",Toast.LENGTH_LONG).show()
+            return
+        }
+        cap.launch(getSystemService(android.media.projection.MediaProjectionManager::class.java).createScreenCaptureIntent())
+    }
 }
 
 class AudioScannerActivity:AppCompatActivity(){
