@@ -43,8 +43,10 @@ class EdgeControlService:Service(){
         }
         fun btn(s:String,cl:Class<*>):Button=Button(this).apply{text=s;setOnClickListener{startActivity(Intent(this@EdgeControlService,cl).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));panel.visibility=View.GONE}}
         panel.addView(master)
+        panel.addView(btn("CAMERA",CameraScannerActivity::class.java))
         panel.addView(btn("SCREEN",ScreenScannerActivity::class.java))
         panel.addView(btn("AUDIO",AudioScannerActivity::class.java))
+        panel.addView(btn("VAULT",VaultActivity::class.java))
         panel.addView(btn("OPEN APP",MainActivity::class.java))
         root.addView(handle,LinearLayout.LayoutParams(Ui.dp(this,52),Ui.dp(this,52)))
         root.addView(panel,LinearLayout.LayoutParams(Ui.dp(this,175),-2))

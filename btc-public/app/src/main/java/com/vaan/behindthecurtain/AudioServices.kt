@@ -34,9 +34,11 @@ class AudioScanService:Service(){
     private val ex=Executors.newSingleThreadExecutor()
     private var rec:AudioRecord?=null
     @Volatile private var running=false
+    @Volatile private var speechBusy=false
     private var sampleRate=48000
     private lateinit var ring:PcmRing
-    private var last=0L
+    private var lastSignal=0L
+    private var lastSpeech=0L
     private lateinit var subs:SubtitleOverlay
 
     override fun onCreate(){
@@ -70,21 +72,52 @@ class AudioScanService:Service(){
             if(!AppState.master(this))continue
             val x=if(n==block.size)block.copyOf()else block.copyOf(n)
             ring.add(x)
-            val finding=AudioInspector.scan(x,sampleRate)?:continue
             val now=System.currentTimeMillis()
-            if(now-last<5000)continue
-            last=now
-            val ev=ring.snap()
-            SpeechDecoder.decode(this,ev,sampleRate){words->
-                EvidenceStore.audio(this,ev,sampleRate,finding,words)
-                alert(finding,words)
-                subs.show(if(words.isEmpty())listOf("${finding.label} • ${"%.1f".format(finding.peakHz)} Hz")else words)
+            val finding=AudioInspector.scan(x,sampleRate)
+
+            if(finding!=null&&now-lastSignal>=5000){
+                lastSignal=now
+                val ev=ring.snap()
+                if(!speechBusy){
+                    speechBusy=true
+                    lastSpeech=now
+                    SpeechDecoder.decode(this,ev,sampleRate){words->
+                        speechBusy=false
+                        EvidenceStore.audio(this,ev,sampleRate,finding,words)
+                        alert(finding,words)
+                        subs.show(if(words.isEmpty())listOf(signalText(finding))else words)
+                    }
+                }else{
+                    EvidenceStore.audio(this,ev,sampleRate,finding,emptyList())
+                    alert(finding,emptyList())
+                    subs.show(listOf(signalText(finding)))
+                }
+                continue
+            }
+
+            if(!speechBusy&&now-lastSpeech>=12000){
+                val ev=ring.snap()
+                if(ev.size>=sampleRate*3){
+                    lastSpeech=now
+                    speechBusy=true
+                    SpeechDecoder.decode(this,ev,sampleRate){words->
+                        speechBusy=false
+                        if(words.isNotEmpty()){
+                            val speech=AudioFinding("SPEECH / TRANSFORM CANDIDATE",0.70f,0f,-120f,"periodic forward, reversed and speed-shift speech sweep")
+                            EvidenceStore.audio(this,ev,sampleRate,speech,words)
+                            alert(speech,words)
+                            subs.show(words)
+                        }
+                    }
+                }
             }
         }
     }
 
+    private fun signalText(f:AudioFinding)=if(f.peakHz>0.1f)"${f.label} • ${"%.1f".format(f.peakHz)} Hz" else f.label
+
     private fun alert(f:AudioFinding,w:List<String>){
-        val text="${f.label} • ${"%.1f".format(f.peakHz)} Hz"
+        val text=signalText(f)
         val b=NotificationCompat.Builder(this,"btc_audio").setSmallIcon(android.R.drawable.ic_btn_speak_now).setContentTitle("Behind the Curtain detected audio").setContentText(if(w.isEmpty())text else "$text • ${w.first().take(70)}").setPriority(NotificationCompat.PRIORITY_HIGH).setAutoCancel(true)
         if(w.isNotEmpty())b.setStyle(NotificationCompat.BigTextStyle().bigText(w.take(6).joinToString("\n")))
         getSystemService(NotificationManager::class.java).notify(403,b.build())
