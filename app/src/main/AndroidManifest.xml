@@ -3,23 +3,30 @@
     package="com.plasmacam">
 
     <uses-permission android:name="android.permission.CAMERA" />
-    <uses-feature android:name="android.hardware.camera.any" android:required="true" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-        <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-<application
+
+    <application
         android:allowBackup="false"
         android:label="@string/app_name"
         android:icon="@mipmap/ic_launcher"
-        android:theme="@style/AppTheme"
-        >
+        android:theme="@style/AppTheme">
 
         <activity
-            android:name=".MainActivity"
+            android:name=".XRayBridge"
             android:screenOrientation="portrait"
             android:exported="true">
             <intent-filter>
@@ -27,5 +34,15 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".MainActivity"
+            android:screenOrientation="portrait"
+            android:exported="false" />
+
+        <service
+            android:name=".XRayBridge$ScanService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection|microphone" />
     </application>
 </manifest>
