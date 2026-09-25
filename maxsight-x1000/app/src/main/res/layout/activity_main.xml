@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto" android:layout_width="match_parent" android:layout_height="match_parent" android:background="#000000" android:clipChildren="true">
+    <androidx.camera.view.PreviewView android:id="@+id/preview" android:layout_width="match_parent" android:layout_height="match_parent" app:implementationMode="compatible" app:scaleType="fillCenter" />
+    <View android:id="@+id/reticle" android:layout_width="28dp" android:layout_height="28dp" android:layout_gravity="center" android:background="@drawable/reticle" />
+    <LinearLayout android:id="@+id/topPanel" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="10dp" android:background="#B005070A">
+        <TextView android:id="@+id/title" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="MAXSIGHT x1000 // DEEP ZOOM" android:textColor="#62F4FF" android:textStyle="bold" android:textSize="18sp" />
+        <TextView android:id="@+id/status" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="STARTING CAMERA…" android:textColor="#FFFFFF" android:textSize="12sp" />
+    </LinearLayout>
+    <LinearLayout android:id="@+id/controlPanel" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_gravity="bottom" android:orientation="vertical" android:padding="8dp" android:background="@drawable/panel_bg">
+        <HorizontalScrollView android:layout_width="match_parent" android:layout_height="wrap_content" android:scrollbars="none"><LinearLayout android:id="@+id/presetRow" android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal" /></HorizontalScrollView>
+        <SeekBar android:id="@+id/zoomSeek" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="10000" android:progress="0" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center">
+            <Button android:id="@+id/photoBtn" android:layout_width="0dp" android:layout_height="50dp" android:layout_weight="1" android:text="PHOTO" android:textColor="#FFFFFF" android:background="@drawable/btn_bg" />
+            <Button android:id="@+id/recBtn" android:layout_width="0dp" android:layout_height="50dp" android:layout_weight="1" android:text="REC" android:textColor="#FF4A5C" android:background="@drawable/btn_bg" />
+            <Button android:id="@+id/collapseBtn" android:layout_width="56dp" android:layout_height="50dp" android:text="▼" android:textColor="#62F4FF" android:background="@drawable/btn_bg" />
+        </LinearLayout>
+        <LinearLayout android:id="@+id/advancedRow" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center">
+            <Button android:id="@+id/detailBtn" android:layout_width="0dp" android:layout_height="46dp" android:layout_weight="1" android:text="DETAIL UHD" android:textSize="10sp" android:textColor="#FFFFFF" android:background="@drawable/btn_bg" />
+            <Button android:id="@+id/steadyBtn" android:layout_width="0dp" android:layout_height="46dp" android:layout_weight="1" android:text="STEADY FHD" android:textSize="10sp" android:textColor="#FFFFFF" android:background="@drawable/btn_bg" />
+            <Button android:id="@+id/teleBtn" android:layout_width="0dp" android:layout_height="46dp" android:layout_weight="1" android:text="TELE LOCK" android:textSize="10sp" android:textColor="#FFFFFF" android:background="@drawable/btn_bg" />
+        </LinearLayout>
+        <LinearLayout android:id="@+id/exposureRow" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center">
+            <Button android:id="@+id/evMinus" android:layout_width="0dp" android:layout_height="42dp" android:layout_weight="1" android:text="EV −" android:textColor="#FFFFFF" android:background="@drawable/btn_bg" />
+            <TextView android:id="@+id/evLabel" android:layout_width="0dp" android:layout_height="42dp" android:layout_weight="1" android:gravity="center" android:text="EV 0" android:textColor="#8BFFB0" />
+            <Button android:id="@+id/evPlus" android:layout_width="0dp" android:layout_height="42dp" android:layout_weight="1" android:text="EV +" android:textColor="#FFFFFF" android:background="@drawable/btn_bg" />
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>
