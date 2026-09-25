@@ -1,14 +1,14 @@
-name: Build Behind the Curtain Public APK
+name: Build Behind the Curtain v1.3 APK
 on:
   workflow_dispatch:
   push:
-    branches: [ behind-the-curtain-download ]
+    branches: [ btc-v1.3-build ]
     paths:
       - 'btc-public/**'
       - '.github/workflows/build-behind-the-curtain-public.yml'
 
 concurrency:
-  group: behind-the-curtain-public-release
+  group: behind-the-curtain-v13-release
   cancel-in-progress: true
 
 permissions:
@@ -19,12 +19,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
-
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
@@ -43,15 +41,15 @@ jobs:
         shell: bash
         run: |
           mkdir -p apk-output
-          cp btc-public/app/build/outputs/apk/release/app-release.apk apk-output/BehindTheCurtain-v1.2.apk
-          sha256sum apk-output/BehindTheCurtain-v1.2.apk > apk-output/BehindTheCurtain-v1.2.apk.sha256
-          ls -lh apk-output/BehindTheCurtain-v1.2.apk
-          cat apk-output/BehindTheCurtain-v1.2.apk.sha256
+          cp btc-public/app/build/outputs/apk/release/app-release.apk apk-output/BehindTheCurtain-v1.3.apk
+          sha256sum apk-output/BehindTheCurtain-v1.3.apk > apk-output/BehindTheCurtain-v1.3.apk.sha256
+          ls -lh apk-output/BehindTheCurtain-v1.3.apk
+          cat apk-output/BehindTheCurtain-v1.3.apk.sha256
 
       - name: Verify 16 KB ZIP alignment
         shell: bash
         run: |
-          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 -v 4 apk-output/BehindTheCurtain-v1.2.apk
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 -v 4 apk-output/BehindTheCurtain-v1.3.apk
 
       - name: Verify ARM64 ELF LOAD alignment
         shell: bash
@@ -59,7 +57,7 @@ jobs:
           set -e
           rm -rf elfcheck
           mkdir elfcheck
-          unzip -q apk-output/BehindTheCurtain-v1.2.apk 'lib/arm64-v8a/*.so' -d elfcheck || true
+          unzip -q apk-output/BehindTheCurtain-v1.3.apk 'lib/arm64-v8a/*.so' -d elfcheck || true
           python3 - <<'PY'
           import pathlib, subprocess, sys
           bad=[]
@@ -71,40 +69,36 @@ jobs:
               for line in out.splitlines():
                   s=line.strip()
                   if s.startswith('LOAD '):
-                      try:
-                          aligns.append(int(s.split()[-1], 0))
-                      except Exception:
-                          pass
+                      try: aligns.append(int(s.split()[-1],0))
+                      except Exception: pass
               minimum=min(aligns) if aligns else 0
               print(f'{lib}: min LOAD align=0x{minimum:x}')
-              if minimum < 0x4000:
-                  bad.append((str(lib),minimum))
+              if minimum < 0x4000: bad.append((str(lib),minimum))
           if bad:
-              print('UNALIGNED:', bad)
+              print('UNALIGNED:',bad)
               sys.exit(1)
           PY
 
-      - name: Attach APK to workflow
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BehindTheCurtain-v1.2-apk
-          path: apk-output/BehindTheCurtain-v1.2.apk
+          name: BehindTheCurtain-v1.3-apk
+          path: apk-output/BehindTheCurtain-v1.3.apk
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish public GitHub release
+      - name: Publish public release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -e
-          TAG="behind-the-curtain-v1.2-public"
+          TAG="behind-the-curtain-v1.3-public"
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$TAG" apk-output/BehindTheCurtain-v1.2.apk apk-output/BehindTheCurtain-v1.2.apk.sha256 --repo "$GITHUB_REPOSITORY" --clobber
+            gh release upload "$TAG" apk-output/BehindTheCurtain-v1.3.apk apk-output/BehindTheCurtain-v1.3.apk.sha256 --repo "$GITHUB_REPOSITORY" --clobber
           else
-            gh release create "$TAG" apk-output/BehindTheCurtain-v1.2.apk apk-output/BehindTheCurtain-v1.2.apk.sha256 \
-              --repo "$GITHUB_REPOSITORY" \
-              --target "$GITHUB_SHA" \
-              --title "Behind the Curtain v1.2" \
-              --notes "Live Screen Watch: non-debuggable Android 16 build, full-display MediaProjection watcher, faster live-frame sampling, invisible overlay until a finding, capturable playback-audio analysis, and verified 16 KB ARM64 alignment."
+            gh release create "$TAG" apk-output/BehindTheCurtain-v1.3.apk apk-output/BehindTheCurtain-v1.3.apk.sha256 \
+              --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --title "Behind the Curtain v1.3" \
+              --notes "v1.3 keeps the live full-display watcher and adds transform-consensus image analysis, structural symbol candidates, deeper hidden-text passes, full-timeline video sampling, spectral/carrier checks, prosody-shift analysis and defensive language-pattern flags. Non-debuggable Android 16 release with 16 KB alignment verification."
           fi
