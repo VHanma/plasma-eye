@@ -18,7 +18,7 @@ class V13MainActivity : AppCompatActivity() {
         root.addView(Ui.button(this, "◉ LIVE SCREEN WATCH") { startActivity(Intent(this, ScreenScannerActivity::class.java)) })
         root.addView(Ui.button(this, "◉ LIVE CAMERA SCAN") { startActivity(Intent(this, CameraScannerActivity::class.java)) })
         root.addView(Ui.button(this, "〽 AUDIO SENTINEL") { startActivity(Intent(this, AudioScannerActivity::class.java)) })
-        root.addView(Ui.button(this, "◫ DEEP FORENSIC LAB") { startActivity(Intent(this, V13ForensicLabActivity::class.java)) })
+        root.addView(Ui.button(this, "◫ FORENSIC LAB • IMAGE / VIDEO / AUDIO") { startActivity(Intent(this, ForensicLabActivity::class.java)) })
         root.addView(Ui.button(this, "┃ FLOATING EDGE CONTROL") { startEdgeControl() })
         root.addView(Ui.button(this, if (AppState.subtitles(this)) "CC SUBTITLES: ON" else "CC SUBTITLES: OFF") {
             AppState.setSubtitles(this, !AppState.subtitles(this)); recreate()
