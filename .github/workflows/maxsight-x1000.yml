@@ -6,6 +6,11 @@ on:
     paths:
       - 'maxsight-x1000/**'
       - '.github/workflows/maxsight-x1000.yml'
+  pull_request:
+    branches: [ master ]
+    paths:
+      - 'maxsight-x1000/**'
+      - '.github/workflows/maxsight-x1000.yml'
 permissions:
   contents: read
 jobs:
