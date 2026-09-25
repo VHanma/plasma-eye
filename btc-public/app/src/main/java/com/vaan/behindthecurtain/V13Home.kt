@@ -15,7 +15,7 @@ class V13MainActivity : AppCompatActivity() {
         val root = Ui.root(this)
         root.addView(Ui.title(this, "BEHIND THE CURTAIN v1.3"))
         root.addView(Ui.body(this, "Live screen watch + deep image/video/audio forensics. Candidate findings appear only when they pass the detection gate; raw evidence stays separate from interpretation."))
-        root.addView(Ui.button(this, "◉ LIVE SCREEN WATCH") { startActivity(Intent(this, V13ScreenScannerActivity::class.java)) })
+        root.addView(Ui.button(this, "◉ LIVE SCREEN WATCH") { startActivity(Intent(this, ScreenScannerActivity::class.java)) })
         root.addView(Ui.button(this, "◉ LIVE CAMERA SCAN") { startActivity(Intent(this, CameraScannerActivity::class.java)) })
         root.addView(Ui.button(this, "〽 AUDIO SENTINEL") { startActivity(Intent(this, AudioScannerActivity::class.java)) })
         root.addView(Ui.button(this, "◫ DEEP FORENSIC LAB") { startActivity(Intent(this, V13ForensicLabActivity::class.java)) })
