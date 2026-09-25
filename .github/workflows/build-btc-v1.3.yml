@@ -1,0 +1,102 @@
+name: Build Behind the Curtain v1.3 APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ behind-the-curtain-v1.3-build ]
+    paths:
+      - '.btc13xz/**'
+      - '.github/workflows/build-btc-v1.3.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+
+      - name: Restore v1.3 source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cat .btc13xz/part00 .btc13xz/part01 .btc13xz/part02a .btc13xz/part02b .btc13xz/part03 > /tmp/btc13.b64
+          base64 -d /tmp/btc13.b64 > /tmp/btc13.tar.xz
+          tar -xJf /tmp/btc13.tar.xz
+          test -f BehindTheCurtain_v1.3/app/build.gradle
+          find BehindTheCurtain_v1.3 -maxdepth 3 -type f | sort | head -80
+
+      - name: Prepare Android 16 compatible build
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sed -i "s/version '8.7.3'/version '8.13.0'/" BehindTheCurtain_v1.3/build.gradle
+          sed -i "s/compileSdk 35/compileSdk 36/" BehindTheCurtain_v1.3/app/build.gradle
+          sed -i "s/targetSdk 35/targetSdk 36/" BehindTheCurtain_v1.3/app/build.gradle
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Compile release APK
+        working-directory: BehindTheCurtain_v1.3
+        shell: bash
+        run: gradle :app:assembleRelease --stacktrace
+
+      - name: Sign and 16 KB align APK
+        shell: bash
+        run: |
+          set -euxo pipefail
+          BT="$ANDROID_HOME/build-tools/36.0.0"
+          UNSIGNED="BehindTheCurtain_v1.3/app/build/outputs/apk/release/app-release-unsigned.apk"
+          test -f "$UNSIGNED"
+          keytool -genkeypair -noprompt -keystore /tmp/btc13.jks -storepass changeit -keypass changeit -alias btc13 -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Behind the Curtain v1.3, O=VHanma"
+          mkdir -p apk-output
+          "$BT/zipalign" -P 16 -f -v 4 "$UNSIGNED" apk-output/BehindTheCurtain-v1.3-aligned.apk
+          "$BT/apksigner" sign --ks /tmp/btc13.jks --ks-pass pass:changeit --key-pass pass:changeit --out apk-output/BehindTheCurtain-v1.3.apk apk-output/BehindTheCurtain-v1.3-aligned.apk
+          rm apk-output/BehindTheCurtain-v1.3-aligned.apk
+          "$BT/apksigner" verify --verbose apk-output/BehindTheCurtain-v1.3.apk
+          "$BT/zipalign" -c -P 16 -v 4 apk-output/BehindTheCurtain-v1.3.apk
+
+      - name: Verify ARM64 ELF 16 KB alignment
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf /tmp/apkcheck && mkdir /tmp/apkcheck
+          cd /tmp/apkcheck
+          unzip -q "$GITHUB_WORKSPACE/apk-output/BehindTheCurtain-v1.3.apk" 'lib/arm64-v8a/*.so' || true
+          if compgen -G 'lib/arm64-v8a/*.so' > /dev/null; then
+            for f in lib/arm64-v8a/*.so; do
+              echo "=== $f ==="
+              readelf -lW "$f" | grep LOAD
+              while read -r align; do
+                v=$((align))
+                if (( v < 16384 || v % 16384 != 0 )); then
+                  echo "ERROR: $f LOAD alignment $align is not 16 KB compatible"
+                  exit 1
+                fi
+              done < <(readelf -lW "$f" | awk '/ LOAD / {print $NF}')
+            done
+          fi
+
+      - name: Hash APK
+        shell: bash
+        run: |
+          sha256sum apk-output/BehindTheCurtain-v1.3.apk | tee apk-output/BehindTheCurtain-v1.3.apk.sha256
+          ls -lh apk-output/BehindTheCurtain-v1.3.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BehindTheCurtain-v1.3-apk
+          path: apk-output/*
+          if-no-files-found: error
