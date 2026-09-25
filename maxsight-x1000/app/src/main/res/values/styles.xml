@@ -1,0 +1,10 @@
+<resources>
+    <style name="Theme.MaxSight" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:navigationBarColor">#000000</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:colorAccent">#62F4FF</item>
+    </style>
+</resources>
