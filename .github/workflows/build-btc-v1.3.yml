@@ -36,7 +36,23 @@ jobs:
           xz -t /tmp/btc13.tar.xz
           tar -xJf /tmp/btc13.tar.xz
           test -f BehindTheCurtain_v1.3/app/build.gradle
-          find BehindTheCurtain_v1.3 -maxdepth 3 -type f | sort | head -80
+
+      - name: Apply v1.3 compile fixes
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path('BehindTheCurtain_v1.3/app/src/main/java/com/vaan/behindthecurtain')
+          p = root/'AudioFileForensics.kt'
+          s = p.read_text()
+          s = s.replace('fun scan(uri:Uri,onProgress:(Int,String)->Unit={}):Report{', 'fun scan(uri:Uri,onProgress:(Int,String)->Unit={ _, _ -> }):Report{')
+          p.write_text(s)
+          for name in ['AudioScannerActivity.kt','CameraScannerActivity.kt']:
+              p = root/name
+              s = p.read_text().replace('Array<out String>', 'Array<String>')
+              p.write_text(s)
+          PY
 
       - name: Prepare Android 16 compatible build
         shell: bash
