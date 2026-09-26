@@ -19,6 +19,7 @@ import java.util.Arrays;
 import java.util.Locale;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 public final class SpeechFileTranscriber {
@@ -87,6 +88,7 @@ public final class SpeechFileTranscriber {
         CountDownLatch done = new CountDownLatch(1);
         AtomicReference<String> resultText = new AtomicReference<>("");
         AtomicReference<SpeechRecognizer> recognizerRef = new AtomicReference<>();
+        AtomicBoolean feedCompleted = new AtomicBoolean(false);
 
         main.post(() -> {
             try {
@@ -140,17 +142,20 @@ public final class SpeechFileTranscriber {
                     p += n;
                 }
                 out.flush();
+                feedCompleted.set(true);
             } catch (Throwable ignored) {}
         }, "btc-asr-feed");
         feeder.start();
 
         done.await(28, TimeUnit.SECONDS);
+        try { feeder.join(1500); } catch (InterruptedException ignored) {}
         close(pipe[0]);
         SpeechRecognizer sr = recognizerRef.get();
         if (sr != null) main.post(() -> {
             try { sr.cancel(); } catch (Throwable ignored) {}
             try { sr.destroy(); } catch (Throwable ignored) {}
         });
+        if (!feedCompleted.get()) return "";
         return resultText.get();
     }
 
