@@ -1,0 +1,91 @@
+name: Build Behind the Curtain v1.4 Session APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ behind-the-curtain-v1.4-session ]
+    paths:
+      - 'BehindTheCurtain_v1.4/**'
+      - '.github/workflows/build-btc-v1.4-session.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+
+      - name: Prepare Android 16 SDK
+        shell: bash
+        run: |
+          set -euxo pipefail
+          export ANDROID_HOME=/usr/local/lib/android/sdk
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+
+      - name: Compile release APK
+        shell: bash
+        run: gradle -p BehindTheCurtain_v1.4 :app:assembleRelease --stacktrace
+
+      - name: Sign and 16 KB ZIP align
+        shell: bash
+        run: |
+          set -euxo pipefail
+          BT="$ANDROID_HOME/build-tools/36.0.0"
+          UNSIGNED="BehindTheCurtain_v1.4/app/build/outputs/apk/release/app-release-unsigned.apk"
+          test -f "$UNSIGNED"
+          keytool -genkeypair -noprompt -keystore /tmp/btc14.jks -storepass changeit -keypass changeit -alias btc14 -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Behind the Curtain v1.4 Session, O=VHanma"
+          mkdir -p apk-output
+          "$BT/zipalign" -P 16 -f -v 4 "$UNSIGNED" apk-output/BehindTheCurtain-v1.4-session-aligned.apk
+          "$BT/apksigner" sign --ks /tmp/btc14.jks --ks-pass pass:changeit --key-pass pass:changeit --out apk-output/BehindTheCurtain-v1.4-session.apk apk-output/BehindTheCurtain-v1.4-session-aligned.apk
+          rm apk-output/BehindTheCurtain-v1.4-session-aligned.apk
+          "$BT/apksigner" verify --verbose apk-output/BehindTheCurtain-v1.4-session.apk
+          "$BT/zipalign" -c -P 16 -v 4 apk-output/BehindTheCurtain-v1.4-session.apk
+
+      - name: Verify ARM64 native libraries are 16 KB compatible
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf /tmp/btc14check && mkdir /tmp/btc14check
+          cd /tmp/btc14check
+          unzip -q "$GITHUB_WORKSPACE/apk-output/BehindTheCurtain-v1.4-session.apk" 'lib/arm64-v8a/*.so' || true
+          if compgen -G 'lib/arm64-v8a/*.so' > /dev/null; then
+            for f in lib/arm64-v8a/*.so; do
+              echo "=== $f ==="
+              readelf -lW "$f" | grep LOAD
+              while read -r align; do
+                v=$((align))
+                if (( v < 16384 || v % 16384 != 0 )); then
+                  echo "ERROR: $f LOAD alignment $align is not 16 KB compatible"
+                  exit 1
+                fi
+              done < <(readelf -lW "$f" | awk '/ LOAD / {print $NF}')
+            done
+          fi
+
+      - name: Hash APK
+        shell: bash
+        run: |
+          sha256sum apk-output/BehindTheCurtain-v1.4-session.apk | tee apk-output/BehindTheCurtain-v1.4-session.apk.sha256
+          ls -lh apk-output/BehindTheCurtain-v1.4-session.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BehindTheCurtain-v1.4-session-apk
+          path: apk-output/*
+          if-no-files-found: error
