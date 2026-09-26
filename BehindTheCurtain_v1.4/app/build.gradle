@@ -1,0 +1,38 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.vaan.behindthecurtain.session'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'com.vaan.behindthecurtain.session'
+        minSdk 29
+        targetSdk 36
+        versionCode 14
+        versionName '1.4-session'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            shrinkResources false
+        }
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'com.google.android.gms:play-services-mlkit-text-recognition:19.0.1'
+}
